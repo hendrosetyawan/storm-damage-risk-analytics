@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Storm Damage Risk Analytics · Texas</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="vendor/d3.min.js"></script>
+  <script src="vendor/topojson-client.min.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <h1>Storm Damage Risk Analytics <span>· Texas counties</span></h1>
+    <div class="progress" aria-label="Requirement status">
+      <span class="req done" data-tip="R1 Geographic comparison: built">R1</span><span class="req done" data-tip="R2 Recurring vs. catastrophic: built">R2</span><span class="req done" data-tip="R3 Hazard contribution: built">R3</span><span class="req todo" data-tip="R4 Temporal patterns: planned">R4</span><span class="req todo" data-tip="R5 Event investigation: planned">R5</span>
+      <small>R1–R3 built · R4–R5 planned</small>
+    </div>
+    <div class="legend-perils" id="peril-legend"></div>
+  </header>
+
+  <main class="grid">
+    <!-- A · Filter view -->
+    <section class="view" id="view-a">
+      <div class="view-title">Filter View <i class="badge">A</i></div>
+      <div class="view-body filters">
+        <div class="block"><h3><i class="sub">a1</i> Time window <small>NOAA 2006–2025</small></h3>
+          <div class="seg" id="f-window"><button data-v="5">5 yrs</button><button data-v="10">10 yrs</button><button data-v="20" class="on">20 yrs</button></div>
+        </div>
+        <div class="block"><h3><i class="sub">a2</i> Hazards <small>share of Texas reports</small></h3><div id="f-perils"></div></div>
+        <div class="block"><h3><i class="sub">a3</i> Dollars</h3>
+          <div class="seg" id="f-dollars"><button data-v="real" class="on">2025 $</button><button data-v="nominal">Nominal</button></div>
+        </div>
+        <div class="block"><h3><i class="sub">a4</i> Map colour</h3><div id="f-metric" class="radios"></div></div>
+        <div class="block grow"><h3><i class="sub">a5</i> Counties <small>up to 4 · click the map</small></h3>
+          <div class="search"><input id="f-search" placeholder="Add a county…" autocomplete="off" /><div id="f-suggest" class="suggest"></div></div>
+          <div id="f-chips" class="chips"></div>
+        </div>
+        <div class="block notes"><h3><i class="sub">a6</i> Reading the data</h3><ul id="f-notes"></ul></div>
+      </div>
+    </section>
+
+    <!-- B · Comparison view (R1-R3) -->
+    <section class="view" id="view-b">
+      <div class="view-title">Comparison View <i class="badge">B</i></div>
+      <div class="view-body bgrid">
+        <div class="brow top">
+        <div class="panel" id="p-map"><div class="ph"><i class="sub">b1</i><b>Where</b><span class="rtag">R1</span><span class="ptitle" id="map-title"></span></div><div class="chart"></div></div>
+        <div class="panel" id="p-compare"><div class="ph"><i class="sub">b2</i><b>County comparison</b><span class="rtag">R1</span><span class="ptitle">grey ticks = all 254 counties · dots = selected · dashed = Texas median</span></div><div class="chart"></div></div>
+        </div>
+        <div class="brow bottom">
+        <div class="panel" id="p-conc"><div class="ph"><i class="sub">b3</i><b>Damage concentration</b><span class="rtag">R2</span><span class="ptitle">cumulative share of damage · steep start = catastrophe-driven, gentle = recurring</span></div><div class="chart"></div></div>
+        <div class="panel" id="p-hazard"><div class="ph"><i class="sub">b4</i><b>Hazard contribution</b><span class="rtag">R3</span><span class="ptitle">share of reports vs share of damage, by peril</span></div><div class="chart"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- C · Detail view -->
+    <section class="view" id="view-c">
+      <div class="view-title">Detail View <i class="badge">C</i></div>
+      <div class="view-body cgrid">
+        <div class="panel" id="p-type"><div class="ph"><i class="sub">c1</i><b>Recurring vs. catastrophic</b><span class="rtag">R2</span></div><div class="chart"></div></div>
+        <div class="panel planned" id="p-time"><div class="ph"><i class="sub">c2</i><b>Temporal patterns</b><span class="rtag todo">R4 · planned</span></div><div class="chart"></div></div>
+        <div class="panel planned" id="p-events"><div class="ph"><i class="sub">c3</i><b>Event investigation</b><span class="rtag todo">R5 · planned</span></div><div class="chart"></div></div>
+      </div>
+    </section>
+  </main>
+  <div id="tip" class="tip" hidden></div>
+  <script src="js/app.js"></script>
+</body>
+</html>
