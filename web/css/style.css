@@ -65,11 +65,11 @@ button { font: inherit; cursor: pointer; }
 .brow { display: grid; gap: 8px; min-height: 0; }
 .brow.top { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); }
 .brow.bottom { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
-.cgrid { display: grid; grid-template-rows: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.cgrid { display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 0.95fr) minmax(0, 1.3fr); gap: 8px; }
 .panel { border: 1px solid var(--line); border-radius: 4px; display: flex; flex-direction: column; min-height: 0; min-width: 0; background: #fff; }
 .ph { display: flex; align-items: center; gap: 2px; padding: 5px 8px; border-bottom: 1px solid var(--line-2); white-space: nowrap; overflow: hidden; }
 .ph b { font-size: 12.5px; color: var(--ink); margin-right: 6px; }
-.ptitle { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; margin-left: 6px; }
+.ptitle { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; margin-left: 6px; min-width: 0; }
 .rtag { font-size: 10px; font-weight: 700; color: #fff; background: var(--accent); border-radius: 3px; padding: 1px 5px; }
 .rtag.todo { background: none; color: var(--todo); border: 1px dashed var(--todo); }
 .chart { flex: 1; min-height: 0; position: relative; }
@@ -87,3 +87,30 @@ button { font: inherit; cursor: pointer; }
 .plan-text { font-size: 11px; fill: #6b5a33; }
 .plan-head { font-size: 11px; font-weight: 700; fill: var(--todo); }
 .tip { position: fixed; z-index: 20; pointer-events: none; background: #2d2d2d; color: #fff; padding: 6px 8px; border-radius: 4px; font-size: 11.5px; max-width: 280px; white-space: pre-line; box-shadow: 0 3px 10px rgba(0,0,0,.2); }
+
+/* R4 / R5 */
+.mini-seg { flex-shrink: 0; display: inline-flex; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; margin-left: 8px; }
+.mini-seg button { border: 0; background: #fff; color: var(--muted); font-size: 10.5px; padding: 1px 7px; }
+.mini-seg button.on { background: var(--accent); color: #fff; }
+.chart.html { overflow: hidden; }
+.r5 { position: absolute; inset: 0; display: grid; grid-template-columns: 112px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+.r5-head { grid-column: 1 / -1; padding: 5px 8px; font-size: 11.5px; border-bottom: 1px solid var(--line-2); display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.r5-head b { font-size: 12px; } .r5-head .muted { color: var(--muted); }
+.r5-head button { margin-left: auto; border: 1px solid var(--line); background: #fff; border-radius: 3px; font-size: 10.5px; color: var(--muted); padding: 1px 6px; }
+.r5-map { border-right: 1px solid var(--line-2); position: relative; }
+.r5-map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.r5-table { overflow-y: auto; font-size: 11px; }
+.r5-table table { width: 100%; border-collapse: collapse; }
+.r5-table th { white-space: nowrap; position: sticky; top: 0; background: #f7f6f2; text-align: left; font-weight: 600; color: var(--muted); padding: 3px 6px; border-bottom: 1px solid var(--line); font-size: 10.5px; }
+.r5-table td { padding: 3px 6px; border-bottom: 1px solid #f0eee9; vertical-align: top; }
+.r5-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.r5-table td.blank { color: var(--faint); font-style: italic; }
+.r5-table tr:hover td { background: #fbf6f2; }
+.r5-table .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: 0; }
+.r5-table .nar { color: var(--muted); }
+.r5-empty { padding: 14px; color: var(--muted); font-size: 12px; }
+.brush .selection { fill: var(--accent); fill-opacity: .08; stroke: var(--accent); stroke-opacity: .5; }
+.r5-table tr.nar-row td { border-bottom: 1px solid #ebe8e2; padding-top: 0; font-size: 10.5px; line-height: 1.3; }
+.r5-table tr:not(.nar-row) td { border-bottom: 0; padding-bottom: 1px; }
+.notes ul { font-size: 10.5px; } .notes li { margin-bottom: 2px; }
+.r5-table tr:not(.nar-row) td:nth-child(2) { white-space: nowrap; }
