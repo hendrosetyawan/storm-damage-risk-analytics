@@ -4,3 +4,4 @@ raw/
 *.pptx
 *.docx
 *.pdf
+.firebase/

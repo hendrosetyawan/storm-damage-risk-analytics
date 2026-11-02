@@ -6,7 +6,7 @@ Inputs (download once, pass the folder with --raw):
   cpi_u_monthly_fred.csv                                      BLS CPI-U (FRED CPIAUCNS), monthly
   counties-10m.json                                           us-atlas county TopoJSON
   tdi_ho_premium_by_county.csv                                TDI homeowners market overview by county, 2019-2025
-  acs/tx_2024_b25001.csv, acs/tx_2024_b25077.csv              Census ACS 5-year 2020-2024: housing units, median home value
+  acs/tx_2024_b25001.csv, b25003.csv, b25077.csv              Census ACS 5-year 2020-2024: housing units, owner-occupied homes, median home value
 
 Outputs:
   storm_days.json  per Texas county, one row per storm day (all hail, thunderstorm wind and tornado reports in the
@@ -109,7 +109,7 @@ def cpi(raw):
 
 
 def context(raw, by_name):
-    """market and exposure context per county: TDI premiums and coverage, Census housing units and home values"""
+    """market and exposure context per county: TDI premiums and coverage, Census housing units, owner-occupied homes and home values"""
     num = lambda v: float(v) if v not in (None, "", "-") else None
     out = defaultdict(dict)
     with open(f"{raw}/tdi_ho_premium_by_county.csv", encoding="utf-8-sig") as f:
@@ -119,11 +119,11 @@ def context(raw, by_name):
             y = r["Year"]
             out[str(fips)][f"premium{y}"] = num(r["Average premium (with wind)"])
             out[str(fips)][f"coverage{y}"] = num(r["Average coverage"])
-    for table, key in (("b25001", "homes"), ("b25077", "homeValue")):
+    for table, key, col in (("b25001", "homes", "E001"), ("b25003", "owners", "E002"), ("b25077", "homeValue", "E001")):
         with open(f"{raw}/acs/tx_2024_{table}.csv") as f:
             for r in csv.DictReader(f, delimiter="|"):
                 fips = r["GEO_ID"][-5:]
-                if fips.startswith("48"): out[fips][key] = num(r[f"{table.upper()}_E001"])
+                if fips.startswith("48"): out[fips][key] = num(r[f"{table.upper()}_{col}"])
     return out
 
 

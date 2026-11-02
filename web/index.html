@@ -4,43 +4,31 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Storm Risk Cosmos · Texas</title>
+  <meta name="description" content="A 3D story of storms, damage and homeowners insurance across the 254 counties of Texas." />
   <link rel="icon" href="data:," />
   <link rel="stylesheet" href="css/cosmos.css" />
   <script src="vendor/d3.min.js"></script>
   <script src="vendor/topojson-client.min.js"></script>
   <script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js" } }</script>
 </head>
-<body>
+<body class="is-story">
   <canvas id="scene"></canvas>
   <div id="labels"></div>
-
-  <!-- intro -->
-  <section id="splash">
-    <div class="splash-inner">
-      <h1 class="neon">STORM RISK<br />COSMOS</h1>
-      <p class="kicker">Texas homeowners insurance · 254 counties</p>
-      <p class="intro">Two counties can report the same storm damage and still be very different risks for an insurer.
-        One loses a little every spring; the other loses almost everything on one afternoon.
-        Here every county is a glowing storm: its <b>shape</b> is the peril that drives its damage, its <b>size</b> is how much damage it has,
-        and its <b>colour</b> is what that means for homeowners insurance.</p>
-      <div class="splash-btns"><button id="btn-guide" class="ghost">Guide</button><button id="btn-explore">Explore</button></div>
-    </div>
-  </section>
 
   <!-- reading guide -->
   <section id="guide" hidden>
     <div class="guide-card">
-      <h2>How to read the cosmos</h2>
+      <h2>How to read the 3D story</h2>
       <div class="guide-grid">
-        <div><svg viewBox="0 0 60 60" class="g-ico" data-shape="0"></svg><b>Hail</b><span>a cluster of ice stones: hail causes most of the county's damage</span></div>
-        <div><svg viewBox="0 0 60 60" class="g-ico" data-shape="1"></svg><b>Thunderstorm wind</b><span>a spinning storm spiral: straight-line wind causes most damage</span></div>
+        <div><svg viewBox="0 0 60 60" class="g-ico" data-shape="0"></svg><b>Hail</b><span>ice stones: hail causes most of the county's damage</span></div>
+        <div><svg viewBox="0 0 60 60" class="g-ico" data-shape="1"></svg><b>Thunderstorm wind</b><span>a storm spiral: straight-line wind causes most damage</span></div>
         <div><svg viewBox="0 0 60 60" class="g-ico" data-shape="2"></svg><b>Tornado</b><span>a funnel: tornadoes cause most damage</span></div>
       </div>
       <ul>
-        <li><b>Money</b>: dollar amounts (NOAA storm damage, TDI paid losses) are a <b>stack of paper money</b> under each storm: taller stack, more dollars; each strapped bundle is the same amount. Homeowners policies are shown by storm size instead.</li>
-        <li><b>Colour</b>: the insurance lens chosen in the top tabs, from cool (low) to hot (high).</li>
-        <li><b>Map</b> places counties where they are, <b>Pattern</b> groups them by recurring vs. catastrophic damage, <b>Ladder</b> ranks them on the colour measure.</li>
-        <li>Drag to orbit, scroll to zoom, hover for numbers, click a county for its insurance card and worst storm days.</li>
+        <li>Each 3D storm is one Texas county.</li>
+        <li><b>Stacks</b> under a storm show amounts: green money for dollars, red bills for claims paid, blue policy paper for insured homes, rose sheets for homes without a policy. Taller = more; every bundle is the same amount.</li>
+        <li><b>Colour</b> is named at the bottom of the screen. Each chapter rings and labels two counties that make its point by contrast.</li>
+        <li>Back / Next or the arrow keys move through the chapters. Drag to turn, scroll to zoom, hover for numbers, click a county for its insurance card.</li>
       </ul>
       <button id="guide-close">Got it</button>
     </div>
@@ -49,33 +37,16 @@
   <!-- top bar -->
   <header id="top">
     <div class="brand"><span class="neon-sm">STORM RISK COSMOS</span><small>Texas homeowners insurance</small></div>
-    <nav id="tabs"></nav>
-    <div class="top-right"><a href="analysis.html" class="link">2D analysis →</a><button id="btn-help" class="round" title="Guide">?</button></div>
+    <nav id="chapters"></nav>
+    <div class="top-right"><a href="analysis.html" class="link">2D analysis</a><button id="btn-help" class="round" title="How to read">?</button></div>
   </header>
-  <div id="kpis"></div>
 
-  <!-- left: mode -->
-  <aside id="mode">
-    <h3>MODE</h3>
-    <button data-mode="map" class="on"><svg viewBox="0 0 48 48"><path d="M10 14l9-4 10 4 9-4v24l-9 4-10-4-9 4z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19 10v24M29 14v24" stroke="currentColor" stroke-width="2"/></svg><span>Map</span></button>
-    <button data-mode="pattern"><svg viewBox="0 0 48 48"><g fill="currentColor"><circle cx="14" cy="14" r="3"/><circle cx="19" cy="17" r="2"/><circle cx="12" cy="20" r="2"/><circle cx="33" cy="13" r="2"/><circle cx="36" cy="18" r="3"/><circle cx="15" cy="34" r="2"/><circle cx="20" cy="31" r="2.5"/><circle cx="33" cy="33" r="3"/><circle cx="37" cy="36" r="2"/><circle cx="31" cy="38" r="1.6"/></g></svg><span>Pattern</span></button>
-    <button data-mode="ladder"><svg viewBox="0 0 48 48"><path d="M8 40h32M8 8v32" stroke="currentColor" stroke-width="2"/><g fill="currentColor"><circle cx="16" cy="30" r="2.5"/><circle cx="16" cy="22" r="2"/><circle cx="26" cy="16" r="3"/><circle cx="26" cy="26" r="2"/><circle cx="36" cy="12" r="2"/><circle cx="36" cy="20" r="2.5"/><circle cx="36" cy="31" r="2"/></g></svg><span>Ladder</span></button>
-    <p id="mode-note"></p>
-  </aside>
+  <!-- left: story card -->
+  <aside id="story"></aside>
 
-  <!-- right: controls / county card -->
+  <!-- right: counties to know / county card -->
   <aside id="panel">
-    <div id="controls">
-      <h3>FOCUS</h3>
-      <div class="pill-input"><input id="search" list="county-list" placeholder="Find a county…" autocomplete="off" /><datalist id="county-list"></datalist></div>
-      <div class="pill-input"><select id="f-pattern"></select></div>
-      <h3>SIZE</h3>
-      <div id="f-size" class="radios"></div>
-      <h3>PERILS</h3>
-      <div id="f-perils" class="chips"></div>
-      <h3>NOAA YEARS</h3>
-      <div id="f-window" class="seg"><button data-v="5">5</button><button data-v="10">10</button><button data-v="20" class="on">20</button></div>
-    </div>
+    <div id="insights"></div>
     <div id="card" hidden></div>
   </aside>
 
@@ -85,7 +56,7 @@
     <div id="size-legend"></div>
   </div>
   <div id="ramp"></div>
-  <footer id="foot">NOAA Storm Events 2006–2025 (NWS damage estimates, not insured loss) · TDI homeowners paid losses 2019–2025, excluding TWIA · TDI premiums with wind coverage · ACS 2020–2024 homes · 2025 dollars (CPI-U)</footer>
+  <footer id="foot">NOAA Storm Events 2006–2025 (NWS damage estimates, not insured loss) · TDI homeowners losses 2019–2025, excluding TWIA · TDI premiums · ACS 2020–2024 owner-occupied homes · premium estimated as policies × average premium · 2025 dollars (CPI-U)</footer>
   <div id="tip" hidden></div>
 
   <script type="module" src="js/cosmos3d.js"></script>

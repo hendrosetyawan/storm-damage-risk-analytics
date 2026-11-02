@@ -8,7 +8,7 @@ CSCE 679 Data Visualization · Team 8: Aadi Mahajan, Abhinav Sheshadri, Hendro S
 
 ## Two views
 
-* **`index.html` · Storm Risk Cosmos (3D)**: an insurance-focused 3D overview. Every county is a glowing storm: its **shape** is the peril that drives its NOAA damage (hail stones, thunderstorm-wind spiral, tornado funnel), dollar amounts (NOAA damage per year or TDI paid losses per year) are a **stack of paper money** under the storm, taller for more dollars with each strapped bundle worth the same amount (homeowners policies are shown by storm size instead), and its **colour** is the insurance lens chosen in the top tabs (paid loss per policy, wind & hail share of losses, average premium 2025, premium rise 2019→2025, storm damage per home, catastrophe share). Three layouts of the same objects: **Map** (where counties are), **Pattern** (recurring vs. catastrophic groups, split at the Texas medians) and **Ladder** (ranked on the colour measure, one column per driving peril). Click a county for its insurance card: TDI losses by year, peril mix and its worst storm days with the NWS narratives.
+* **`index.html` · Storm Risk Cosmos (3D story)**, live at https://stormcosmos.web.app: a seven-chapter 3D story for homeowners insurers. Every Texas county is a 3D storm shaped by the peril behind most of its damage (hail stones, thunderstorm-wind spiral, tornado funnel). Amounts stand under the storm as stacks of paper, one bundle = a fixed amount: green money, red "paid" bills for claims, blue policy paper for insured homes, rose sheets for homes without a policy. Chapters: storms reach every county → storms turn into damage → one big day or many small ones → insured and uninsured homes → premium in, claims out → few storms, many claims → where to grow, review and protect. Each chapter has one headline number and rings two counties that make its point by contrast (for example Dallas and Harris: the same storm days, $236M vs $5.6M of damage a year). Back / Next or the arrow keys move through it; click any county for its insurance card.
 * **`analysis.html` · 2D analysis**: the full five-view dashboard described below.
 
 ![3D view](docs/cosmos3d.png)
@@ -41,7 +41,7 @@ A **storm day** is all hail, thunderstorm-wind and tornado reports in one county
 python3 -m http.server 8000 --directory web
 ```
 
-Then open http://localhost:8000 (3D view) or http://localhost:8000/analysis.html (2D analysis). D3, topojson-client and Three.js are included in `web/vendor/`, so no internet connection is needed.
+Then open http://localhost:8000 (3D story) or http://localhost:8000/analysis.html (2D analysis). D3, topojson-client and Three.js are included in `web/vendor/`, so no internet connection is needed.
 
 ## Rebuild the data
 
@@ -58,7 +58,7 @@ python3 scripts/build_data.py --raw /path/to/raw
 | BLS CPI-U (FRED CPIAUCNS) | `cpi_u_monthly_fred.csv` | 2025-dollar adjustment |
 | us-atlas county TopoJSON | `counties-10m.json` | Texas county boundaries |
 | TDI homeowners market overview by county, 2019–2025 | `tdi_ho_premium_by_county.csv` | average premium and coverage |
-| Census ACS 5-year 2020–2024 | `acs/tx_2024_b25001.csv`, `acs/tx_2024_b25077.csv` | housing units, median home value |
+| Census ACS 5-year 2020–2024 | `acs/tx_2024_b25001.csv`, `b25003.csv`, `b25077.csv` | housing units, owner-occupied homes, median home value |
 
 ## Caveats
 
@@ -66,4 +66,7 @@ python3 scripts/build_data.py --raw /path/to/raw
 * NOAA property damage is a National Weather Service estimate, not insured loss; many reports have no damage value (shown as unknown, not $0).
 * TDI paid losses cover homeowners policies only and exclude TWIA wind/hail policies.
 * CPI-U adjusts for prices only, not for growth in the number or value of homes.
+* Coverage is TDI homeowners policies divided by owner-occupied homes (ACS); homes insured through the Texas FAIR Plan or surplus lines are not counted, so the uncovered gap is an upper bound.
+* Premium per county is estimated as policies × the TDI average premium (interpolated between 2019 and 2025), so "claims per premium dollar" is an estimate, not a reported loss ratio.
+* In the 14 TWIA first-tier coastal counties most wind claims go to TWIA, which this data excludes; they are flagged and left out of the storm-vs-claim ranking and the insurer categories.
 * The views support an analyst's investigation; they do not set rates.

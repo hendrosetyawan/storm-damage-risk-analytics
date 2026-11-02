@@ -1,129 +1,176 @@
 /* Storm Risk Cosmos · Texas
- * Every county is a glowing storm in a 3D scene:
+ * A seven-chapter 3D story for homeowners insurers. Every county is a 3D storm:
  *   shape  = the peril that drives its NOAA damage (hail stones, thunderstorm-wind spiral, tornado funnel)
- *   size   = NOAA damage per year, TDI paid losses per year, or homeowners policies; dollar measures are drawn as a
- *            stack of paper money under the storm (height = dollars, one strapped bundle = a fixed amount)
- *   colour = the insurance lens picked in the top tabs (paid loss per policy, wind & hail share, premium, ...)
- * Three layouts of the same objects: Map (where counties are), Pattern (recurring vs. catastrophic groups, split at
- * the Texas medians as in the 2D analysis) and Ladder (ranked on the colour measure, one column per peril).
- * Clicking a county opens its insurance card with TDI losses by year, peril mix and its worst storm days. */
+ *   stack  = amounts under the storm, one bundle = a fixed amount: paper money for dollars, red bills for claims paid,
+ *            policy paper for insured homes, rose sheets for owner homes without a policy (two-part stacks compare two
+ *            amounts in one column)
+ *   colour = the measure of the chapter, always named in the legend
+ * Each chapter names one high-contrast pair of counties. Clicking a county opens its insurance card. */
 import * as THREE from "three";
 import { OrbitControls } from "../vendor/three/OrbitControls.js";
 
 const PERILS = [{ k: 0, name: "Hail", long: "Hail", c: "#5b8fc9" }, { k: 1, name: "Wind", long: "Thunderstorm wind", c: "#d9a441" }, { k: 2, name: "Tornado", long: "Tornado", c: "#8e6bb5" }];
-const LAST_YEAR = 2025;
-const fmtMoney = (v) => (v == null || isNaN(v) ? "n/a" : Math.abs(v) >= 1e9 ? `$${(v / 1e9).toFixed(1)}B` : Math.abs(v) >= 1e6 ? `$${(v / 1e6).toFixed(Math.abs(v) >= 1e7 ? 0 : 1)}M` : Math.abs(v) >= 1e3 ? `$${Math.round(v / 1e3)}K` : `$${Math.round(v)}`);
+const WINDOW = 20, LAST_YEAR = 2025;
+// TWIA first-tier coastal counties: most wind claims there go to the Texas Windstorm Insurance Association, not in TDI data
+const COAST = new Set([48007, 48039, 48057, 48061, 48071, 48167, 48245, 48261, 48273, 48321, 48355, 48391, 48409, 48489]);
+const MIN_POL = 500;                                         // smaller books are too noisy to rank
+const fmtMoney = (v) => (v == null || isNaN(v) ? "n/a" : Math.abs(v) >= 1e12 ? `$${(v / 1e12).toFixed(1)}T` : Math.abs(v) >= 1e9 ? `$${(v / 1e9).toFixed(1)}B` : Math.abs(v) >= 1e6 ? `$${(v / 1e6).toFixed(Math.abs(v) >= 1e7 ? 0 : 1)}M` : Math.abs(v) >= 1e3 ? `$${Math.round(v / 1e3)}K` : `$${Math.round(v)}`);
 const fmtDollar = (v) => (v == null || isNaN(v) ? "n/a" : `$${Math.round(v).toLocaleString("en-US")}`);
 const fmtPct = (v) => (v == null || isNaN(v) ? "n/a" : `${Math.round(v * 100)}%`);
 const fmtInt = (v) => (v == null || isNaN(v) ? "n/a" : Math.round(v).toLocaleString("en-US"));
+const fmtCount = (v) => (v == null || isNaN(v) ? "n/a" : v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e4 ? `${Math.round(v / 1e3)}K` : fmtInt(v));
+const fmt1 = (v) => (v == null || isNaN(v) ? "n/a" : v >= 10 ? v.toFixed(0) : v.toFixed(1));
+const fmtGap = (v) => (v == null || isNaN(v) ? "n/a" : `${v >= 0 ? "+" : "−"}${Math.round(Math.abs(v) * 100)} pts`);
+const fmtCents = (v) => (v == null || isNaN(v) ? "n/a" : `${Math.round(v * 100)}¢`);
 const LENSES = {
-  lossPerPolicy: { tab: "Paid loss / policy", long: "TDI homeowners paid loss per policy per year, 2019–2025", fmt: fmtDollar, log: true },
-  windShare: { tab: "Wind & hail share", long: "Share of TDI paid losses from wind & hail, 2019–2025", fmt: fmtPct },
-  premium: { tab: "Premium 2025", long: "Average homeowners premium with wind coverage, 2025", fmt: fmtDollar },
-  premiumChange: { tab: "Premium rise", long: "Change in average homeowners premium, 2019 → 2025", fmt: (v) => (v == null || isNaN(v) ? "n/a" : `${v >= 0 ? "+" : ""}${Math.round(v * 100)}%`) },
-  damagePerHome: { tab: "Storm damage / home", long: "NOAA storm damage per housing unit per year", fmt: fmtDollar, log: true },
-  top1: { tab: "Catastrophe share", long: "Share of NOAA damage from the county's single worst storm day", fmt: fmtPct },
+  peril: { long: "Storm behind most of the county's property damage", type: "peril" },
+  top1: { long: "Share of 20 years of damage that fell on the single worst day", fmt: fmtPct, type: "seq", ramp: ["#2c7bb6", "#7fb3d5", "#f2c14e", "#e8642c", "#c81d4b"], domain: [0.2, 1] },
+  coverage: { long: "Share of owner-occupied homes with a homeowners policy, 2025", fmt: fmtPct, type: "seq", ramp: ["#e8642c", "#e0a526", "#9cc5a1", "#2fa58f", "#1f5f99"] },
+  lossRatio: { long: "Claims paid per premium dollar, 2019–2025 (premium estimated)", fmt: (v) => fmtCents(v), type: "div", domain: [0.15, null, 1], ramp: ["#1a9850", "#f2c14e", "#c81d4b"] },
+  claimGap: { long: "Claim rank minus storm rank (positive = more claims than storms suggest)", fmt: (v) => fmtGap(v), type: "div", domain: [-0.6, 0, 0.6], ramp: ["#2c7bb6", "#d9cfe3", "#c81d4b"] },
+  category: { long: "Where an insurer should look", type: "cat" },
 };
-const SIZES = {
-  damage: { label: "NOAA damage / year", fmt: fmtMoney, money: true },
-  paidPerYear: { label: "TDI paid losses / year", fmt: fmtMoney, money: true },
-  policies: { label: "Homeowners policies", fmt: fmtInt },
+const CATS = {
+  growth: { name: "Grow", c: "#1f9e89", note: "many owner homes without a policy and claims below the Texas average (3,000+ uncovered homes)" },
+  over: { name: "Review", c: "#c81d4b", note: "claims eat 70¢+ of each premium dollar and rank 30+ points above the county's storms" },
+  rich: { name: "Protect", c: "#e0a526", note: "claims take 35¢ or less of each premium dollar (2,000+ policies)" },
 };
-const GROUPS = {
-  "Catastrophe-driven": { x: -30, z: -20, note: "few damaging days, one dominant day" },
-  "Recurring + dominant storms": { x: 30, z: -20, note: "damage most years and a dominant day" },
-  Occasional: { x: -30, z: 22, note: "few damaging days, none dominant" },
-  Recurring: { x: 30, z: 22, note: "damage most years, spread out" },
-  "Too few damaging days": { x: 0, z: 0, note: "fewer than 3 damaging days" },
+const OTHER = { c: "#8fb1e3", name: "No flag" }, COASTAL = { c: "#7d74c9", name: "TWIA coast (wind claims not in this data)" };
+const NO_DATA = "#c9c3d6";
+const BURST = {
+  oneday: { x: -22, z: -2, name: "One big day", note: "the worst day caused half or more of 20 years of damage" },
+  spread: { x: 22, z: -2, name: "Many smaller days", note: "damage spread over many storms" },
+  few: { x: 0, z: 22, name: "Little damage", note: "fewer than 3 damaging days in 20 years" },
 };
-const MODE_NOTE = {
-  map: "Counties where they are. Big, hot storms carry big damage and big insured losses.",
-  pattern: "Grouped by how damage arrives: spread over many days, or in one catastrophic day.",
-  ladder: "Ranked on the colour measure, one column per driving peril. Dashed line: Texas median.",
+const PAPER_KIND = {
+  money: { label: "premium kept", c: ["#cfe3bf", "#5f8f55", "#c4a052"] },
+  damage: { label: "property damage", c: ["#cfe3bf", "#5f8f55", "#c4a052"] },
+  claims: { label: "claims paid", c: ["#f6c7b8", "#c0533a", "#c4a052"] },
+  policy: { label: "insured homes", c: ["#f6f8fd", "#8fa2cc", "#2c5aa0"] },
+  uncovered: { label: "homes without a policy", c: ["#f7e1e3", "#c26b78", "#c81d4b"] },
 };
-const CAMERA = { map: [[7, 74, 100], [7, 0, 6]], pattern: [[7, 70, 98], [7, 0, 2]], ladder: [[5, 6, 104], [5, 1, 0]] };
-const SIZE_FACTOR = { map: 1, pattern: 0.8, ladder: 0.5 };
-const WIND_TILT = { map: 0.6, pattern: 0.6, ladder: 1.3 };   // wind spirals lean toward the camera
-const RAMP = d3.interpolateRgbBasis(["#2c7bb6", "#2fa58f", "#e0a526", "#e8642c", "#c81d4b"]);
-const NO_DATA = "#b4b8c8";
+const CAMERA = { map: [[7, 74, 100], [7, 0, 6]], burst: [[2, 66, 92], [2, 0, 4]], mismatch: [[0, 1, 88], [0, 0, 0]] };
+const SIZE_FACTOR = { map: 1, burst: 0.6, mismatch: 0.42 };
+const WIND_TILT = { map: 0.6, burst: 0.6, mismatch: 1.3 };   // wind spirals lean toward the camera
+const STORY_DX = { map: 9, burst: 5, mismatch: 2 };          // nudge the scene right of the story card
 
-const state = { mode: "map", lens: "lossPerPolicy", size: "damage", window: 20, perils: new Set([0, 1, 2]), pattern: "all", sel: null, hover: null };
+const state = { chapter: 0, mode: "map", lens: "peril", size: "stormDays", stack: [], focus: null, special: null, pair: [], sel: null, hover: null };
 let SD, TDIDATA, CPI, CTX, TOPO, NAMES, M = new Map(), TX = {}, colorOf, sizeOf, lensScale, bundle = 1;
-const BUNDLE_H = 1.1, STORM_ON_CASH = 0.85;   // world height of one bundle; storm size when it sits on a stack
+const BUNDLE_H = 1.1, STORM_ON_STACK = 0.85;   // world height of one bundle; storm size when it sits on a stack
 const EVENTS = new Map();
 const $ = (s) => document.querySelector(s);
 
 // ---------------------------------------------------------------- metrics
 function compute() {
-  const w0 = LAST_YEAR - state.window + 1, n = state.window, P = [...state.perils];
-  M = new Map();
+  const w0 = LAST_YEAR - WINDOW + 1;
   for (const f of Object.keys(NAMES)) {
     const fips = +f, rows = SD.counties[f] ?? [];
     const dmgP = [0, 0, 0], reports = [0, 0, 0], days = [];
-    let total = 0;
+    let total = 0, stormDays = 0;
     for (const r of rows) {
       const yr = Math.floor(r[0] / 10000); if (yr < w0) continue;
       const k = CPI.toBase[yr];
       let d = 0, c = 0; const dp = [0, 0, 0];
-      for (const p of P) { dp[p] = r[1 + p] * k; d += dp[p]; c += r[4 + p]; reports[p] += r[4 + p]; dmgP[p] += dp[p]; }
+      for (const p of [0, 1, 2]) { dp[p] = r[1 + p] * k; d += dp[p]; c += r[4 + p]; reports[p] += r[4 + p]; dmgP[p] += dp[p]; }
       if (!c) continue;
-      total += d;
+      stormDays++; total += d;
       if (d > 0) days.push({ date: r[0], d, dp });
     }
     days.sort((a, b) => b.d - a.d);
     const argmax = (a) => a.indexOf(Math.max(...a));
     const dom = total > 0 ? argmax(dmgP) : d3.sum(reports) > 0 ? argmax(reports) : -1;
-    // TDI homeowners, 2019–2025, in 2025 dollars
-    let paid = 0, wind = 0, pol = 0, yrs = 0;
+    const cx = CTX[f] ?? {};
+    // TDI homeowners, 2019–2025, in 2025 dollars; premium per year estimated from policies x average premium,
+    // with the average premium interpolated between the 2019 and 2025 TDI values
+    let paid = 0, wind = 0, pol = 0, yrs = 0, prem = 0;
     const tdi = (TDIDATA.counties[f] ?? []).map(([year, p, w, np]) => {
       const k = CPI.toBase[year];
-      if (p != null && np) { paid += p * k; wind += (w ?? 0) * k; pol += np; yrs++; }
+      if (p != null && np) {
+        paid += p * k; wind += (w ?? 0) * k; pol += np; yrs++;
+        if (cx.premium2019 && cx.premium2025) prem += np * (cx.premium2019 + ((cx.premium2025 - cx.premium2019) * (year - 2019)) / 6) * k;
+      }
       return { year, paid: p == null ? null : p * k, wind: w == null ? null : w * k, pol: np };
     });
-    const last = tdi.length ? tdi[tdi.length - 1] : null, cx = CTX[f] ?? {};
+    const last = tdi.length ? tdi[tdi.length - 1] : null, policies = last?.pol ?? null, owners = cx.owners ?? null;
+    const top1 = total > 0 ? days[0].d / total : null;
     M.set(fips, {
-      fips, name: NAMES[f], dmgP, reports, damage: total / n, nDmgDays: days.length, damagingDays: days.length / n,
-      top1: total > 0 ? days[0].d / total : null, topDays: days.slice(0, 3), dom, domShare: total > 0 ? dmgP[dom] / total : null,
+      fips, name: NAMES[f], coast: COAST.has(fips), dmgP, reports, nReports: d3.sum(reports), stormDays: stormDays / WINDOW,
+      damage: total / WINDOW, nDmgDays: days.length, top1, topDays: days.slice(0, 3), dom, domShare: total > 0 ? dmgP[dom] / total : null,
+      burst: days.length < 3 ? "few" : top1 >= 0.5 ? "oneday" : "spread",
       tdi, paidPerYear: yrs ? paid / yrs : null, lossPerPolicy: pol ? paid / pol : null, windShare: paid > 0 ? wind / paid : null,
-      policies: last?.pol ?? null, premium: cx.premium2025 ?? null, premium2019: cx.premium2019 ?? null,
-      premiumChange: cx.premium2019 && cx.premium2025 ? cx.premium2025 / cx.premium2019 - 1 : null,
-      homes: cx.homes ?? null, damagePerHome: cx.homes ? total / n / cx.homes : null,
+      premiumYear: prem ? prem / yrs : null, lossRatio: prem ? paid / prem : null, premiumKept: prem ? (prem - paid) / yrs : null,
+      keptPos: prem ? Math.max(0, (prem - paid) / yrs) : null,
+      policies, owners, coverage: policies != null && owners ? Math.min(1, policies / owners) : null,
+      insured: policies != null && owners != null ? Math.min(policies, owners) : null,
+      uncovered: policies != null && owners != null ? Math.max(0, owners - policies) : null,
+      insuredValue: policies != null && cx.coverage2025 ? policies * cx.coverage2025 : null,
+      premium: cx.premium2025 ?? null, premiumChange: cx.premium2019 && cx.premium2025 ? cx.premium2025 / cx.premium2019 - 1 : null,
     });
   }
-  // recurring vs. catastrophic typology, split at the Texas medians (same rule as the 2D analysis)
-  const all = [...M.values()], pts = all.filter((m) => m.nDmgDays >= 3 && m.top1 != null);
-  const medX = d3.median(pts, (m) => m.damagingDays), medY = d3.median(pts, (m) => m.top1);
-  for (const m of all) m.type = m.nDmgDays < 3 || m.top1 == null ? "Too few damaging days" :
-    m.top1 >= medY ? (m.damagingDays >= medX ? "Recurring + dominant storms" : "Catastrophe-driven") : (m.damagingDays >= medX ? "Recurring" : "Occasional");
-  // Texas totals for the header (TDI does not depend on the NOAA filters)
-  let paid = 0, wind = 0, pol = 0, p19 = 0, n19 = 0, p25 = 0, n25 = 0;
+  const all = [...M.values()];
+  for (const m of all) m.uncoveredShare = m.uncovered != null && m.owners ? m.uncovered / m.owners : null;
+  // storms vs. claims: percentile rank of storm days per year against percentile rank of paid loss per policy
+  const ranked = all.filter((m) => m.lossPerPolicy != null && m.policies >= MIN_POL && !m.coast);
+  const pct = (key) => { const s = [...ranked].sort((a, b) => a[key] - b[key]); s.forEach((m, i) => (m[`${key}Pct`] = i / (s.length - 1))); };
+  pct("stormDays"); pct("lossPerPolicy");
+  for (const m of all) m.claimGap = ranked.includes(m) ? m.lossPerPolicyPct - m.stormDaysPct : null;
+  // Texas totals
+  const S = (f) => d3.sum(all, f);
+  let paid = 0, wind = 0, pol = 0;
+  for (const m of all) for (const t of m.tdi) if (t.paid != null && t.pol) { paid += t.paid; wind += t.wind ?? 0; pol += t.pol; }
+  const withPrem = all.filter((m) => m.lossRatio != null);
+  TX = {
+    paid, windShare: wind / paid, lossPerPolicy: paid / pol, reports: S((m) => m.nReports), counties: all.filter((m) => m.nReports > 0).length,
+    domCount: [0, 1, 2].map((p) => all.filter((m) => m.dom === p).length), damageYr: S((m) => m.damage),
+    hailRep: S((m) => m.reports[0]) / S((m) => m.nReports), hailDmg: S((m) => m.dmgP[0]) / S((m) => d3.sum(m.dmgP)),
+    burst: Object.fromEntries(Object.keys(BURST).map((b) => [b, all.filter((m) => m.burst === b).length])),
+    policies: S((m) => m.policies ?? 0), owners: S((m) => m.owners ?? 0), insuredValue: S((m) => m.insuredValue ?? 0), uncovered: S((m) => m.uncovered ?? 0),
+    lossRatio: d3.sum(withPrem, (m) => m.paidPerYear) / d3.sum(withPrem, (m) => m.premiumYear),
+  };
+  TX.coverage = Math.min(1, TX.policies / TX.owners); TX.uncoveredShare = TX.uncovered / TX.owners;
+  TX.nGap = all.filter((m) => m.claimGap >= 0.3).length;
+  // the insurer's view: one label per county, coast and very small books left out
   for (const m of all) {
-    for (const t of m.tdi) if (t.paid != null && t.pol) { paid += t.paid; wind += t.wind ?? 0; pol += t.pol; }
-    const t19 = m.tdi.find((t) => t.year === 2019), t25 = m.tdi.find((t) => t.year === 2025);
-    if (m.premium2019 && t19?.pol) { p19 += m.premium2019 * t19.pol; n19 += t19.pol; }
-    if (m.premium && t25?.pol) { p25 += m.premium * t25.pol; n25 += t25.pol; }
+    m.cat = null;
+    if (m.coast || !(m.policies >= MIN_POL) || m.lossRatio == null) continue;
+    if (m.claimGap != null && m.claimGap >= 0.3 && m.lossRatio >= 0.7) m.cat = "over";
+    else if (m.uncovered >= 3000 && m.lossRatio <= TX.lossRatio) m.cat = "growth";
+    else if (m.lossRatio <= 0.35 && m.policies >= 2000) m.cat = "rich";
   }
-  TX = { paid, windShare: wind / paid, lossPerPolicy: paid / pol, prem19: p19 / n19, prem25: p25 / n25 };
+  TX.cat = Object.fromEntries(Object.keys(CATS).map((c) => [c, all.filter((m) => m.cat === c).length]));
 }
 
 function buildScales() {
   const all = [...M.values()], L = LENSES[state.lens];
-  const vals = all.map((m) => m[state.lens]).filter((v) => v != null && isFinite(v) && (!L.log || v > 0)).sort(d3.ascending);
-  const lo = d3.quantileSorted(vals, 0.03), hi = d3.quantileSorted(vals, 0.97);
-  lensScale = (L.log ? d3.scaleLog() : d3.scaleLinear()).domain([lo, hi]).range([0, 1]).clamp(true);
-  lensScale.median = d3.quantileSorted(vals, 0.5);
-  colorOf = (m) => { const v = m[state.lens]; return v == null || !isFinite(v) ? NO_DATA : RAMP(lensScale(L.log && v <= 0 ? lo : v)); };
+  lensScale = null;
+  let base;
+  if (L.type === "peril") base = (m) => (m.dom >= 0 ? PERILS[m.dom].c : NO_DATA);
+  else if (L.type === "cat") base = (m) => (m.cat ? CATS[m.cat].c : OTHER.c);
+  else {
+    const vals = all.map((m) => m[state.lens]).filter((v) => v != null && isFinite(v)).sort(d3.ascending);
+    let sc;
+    if (L.type === "div") { const [lo, mid, hi] = L.domain.map((d) => d ?? TX[state.lens]); sc = d3.scaleLinear().domain([lo, mid, hi]).range([0, 0.5, 1]).clamp(true); Object.assign(sc, { lo, mid, hi }); }
+    else { const [lo, hi] = L.domain ?? [d3.quantileSorted(vals, 0.03), d3.quantileSorted(vals, 0.97)]; sc = d3.scaleLinear().domain([lo, hi]).range([0, 1]).clamp(true); Object.assign(sc, { lo, hi, mid: d3.quantileSorted(vals, 0.5) }); }
+    lensScale = sc; const ramp = d3.interpolateRgbBasis(L.ramp);
+    base = (m) => { const v = m[state.lens]; return v == null || !isFinite(v) ? NO_DATA : ramp(sc(v)); };
+    base.ramp = ramp;
+  }
+  colorOf = (m) => (state.special?.(m) ? state.special(m).c : base(m));
+  colorOf.ramp = base.ramp;
   const sv = all.map((m) => m[state.size] ?? 0).sort(d3.ascending);
   const sMax = d3.quantileSorted(sv, 0.985) || 1;
   const s = d3.scaleSqrt().domain([0, sMax]).range([0.7, 3.3]).clamp(true);
   sizeOf = (m) => s(m[state.size] ?? 0);
   sizeOf.scale = s; sizeOf.max = sMax;
-  // cash stacks: height is linear in dollars; one strapped bundle is a round amount so the tallest stack has ~16
-  const top = d3.max(sv) || 1, raw = top / 16, p = 10 ** Math.floor(Math.log10(raw));
-  bundle = [1, 2, 2.5, 5, 10].map((k) => k * p).find((v) => v >= raw);
+  // stacks: height is linear in the amount; one bundle is a round amount so the tallest stack has about 16
+  if (state.stack.length) {
+    const top = d3.max(all, stackTotal) || 1, raw = top / 16, p = 10 ** Math.floor(Math.log10(raw));
+    bundle = [1, 2, 2.5, 5, 10].map((k) => k * p).find((v) => v >= raw);
+  }
 }
-const useCash = () => SIZES[state.size].money && state.mode !== "ladder";
-const stackH = (m) => { const v = m[state.size] ?? 0; return v > 0 ? Math.max(0.14, (v / bundle) * BUNDLE_H) : 0; };
+const stackTotal = (m) => d3.sum(state.stack, (p) => Math.max(0, m[p.key] ?? 0));
+const useStack = () => state.stack.length && state.mode !== "mismatch";
+const partH = (m, i) => { const v = Math.max(0, m[state.stack[i]?.key] ?? 0); return v > 0 ? Math.max(0.12, (v / bundle) * BUNDLE_H) : 0; };
 
 // ---------------------------------------------------------------- three.js scene
 const canvas = $("#scene");
@@ -148,25 +195,50 @@ const glowTex = (() => {
   return new THREE.CanvasTexture(c);
 })();
 
-// paper money: the top of a stack shows a banknote, the sides show the paper edges of strapped bundles
+// stacks of paper: the top shows one sheet, the sides show the paper edges of strapped bundles
 const canvasTex = (w, h, draw) => { const c = document.createElement("canvas"); c.width = w; c.height = h; draw(c.getContext("2d"), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
-const billTop = canvasTex(256, 116, (g, w, h) => {
-  g.fillStyle = "#cfe3bf"; g.fillRect(0, 0, w, h);
-  g.strokeStyle = "#5f8f55"; g.lineWidth = 5; g.strokeRect(7, 7, w - 14, h - 14);
+const sideTex = (light, dark, gap, strap) => {
+  const t = canvasTex(64, 128, (g, w, h) => {
+    for (let y = 0; y < h; y += 4) { g.fillStyle = y % 8 ? light : dark; g.fillRect(0, y, w, 4); }
+    g.fillStyle = gap; g.fillRect(0, h - 3, w, 3);                               // gap between bundles
+    g.fillStyle = strap; g.fillRect(w * 0.6, 0, w * 0.14, h);
+  });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
+};
+const bill = (paper, ink, edge, stamp) => canvasTex(256, 116, (g, w, h) => {
+  g.fillStyle = paper; g.fillRect(0, 0, w, h);
+  g.strokeStyle = edge; g.lineWidth = 5; g.strokeRect(7, 7, w - 14, h - 14);
   g.lineWidth = 1.5; g.strokeRect(15, 15, w - 30, h - 30);
-  g.fillStyle = "#b3d29e"; g.beginPath(); g.ellipse(w / 2, h / 2, 30, 34, 0, 0, Math.PI * 2); g.fill(); g.stroke();
-  g.fillStyle = "#3f6e3a"; g.font = "bold 44px Georgia, serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("$", w / 2, h / 2 + 2);
+  g.beginPath(); g.ellipse(w / 2, h / 2, 30, 34, 0, 0, Math.PI * 2); g.stroke();
+  g.fillStyle = ink; g.font = "bold 44px Georgia, serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("$", w / 2, h / 2 + 2);
   g.font = "bold 20px Georgia, serif"; for (const [x, y] of [[30, 30], [w - 30, 30], [30, h - 28], [w - 30, h - 28]]) g.fillText("$", x, y);
-  g.fillStyle = "rgba(196, 160, 82, 0.9)"; g.fillRect(w / 2 + 52, 0, 26, h);    // paper strap
+  if (stamp) { g.save(); g.translate(w / 2 + 70, h / 2); g.rotate(-0.25); g.font = "bold 22px Helvetica, Arial, sans-serif"; g.fillText(stamp, 0, 0); g.restore(); }
+  else { g.fillStyle = "rgba(196, 160, 82, 0.9)"; g.fillRect(w / 2 + 52, 0, 26, h); }           // paper strap
 });
-const billSide = canvasTex(64, 128, (g, w, h) => {
-  for (let y = 0; y < h; y += 4) { g.fillStyle = y % 8 ? "#d6efc4" : "#8fc47a"; g.fillRect(0, y, w, 4); }
-  g.fillStyle = "#6f9a63"; g.fillRect(0, h - 3, w, 3);                         // gap between bundles
-  g.fillStyle = "rgba(196, 160, 82, 0.95)"; g.fillRect(w * 0.6, 0, w * 0.14, h);
-});
-billSide.wrapS = billSide.wrapT = THREE.RepeatWrapping;
+const moneyPaper = { top: bill("#cfe3bf", "#3f6e3a", "#5f8f55"), side: sideTex("#d6efc4", "#8fc47a", "#6f9a63", "rgba(196, 160, 82, 0.95)") };
+const PAPER = {
+  money: moneyPaper, damage: moneyPaper,
+  claims: { top: bill("#f6c7b8", "#9a3a26", "#c0533a", "PAID"), side: sideTex("#fadbd1", "#e59a83", "#c0533a", "rgba(196, 160, 82, 0.95)") },
+  policy: {
+    top: canvasTex(256, 116, (g, w, h) => {
+      g.fillStyle = "#fbfcff"; g.fillRect(0, 0, w, h);
+      g.fillStyle = "#2c5aa0"; g.fillRect(0, 0, w, 24);
+      g.fillStyle = "#fff"; g.font = "bold 15px Helvetica, Arial, sans-serif"; g.textBaseline = "middle"; g.fillText("HOMEOWNERS POLICY", 14, 13);
+      g.fillStyle = "#c3cbe0"; for (let y = 38; y < h - 12; y += 12) g.fillRect(14, y, w * (y % 24 ? 0.55 : 0.68), 4);
+      g.strokeStyle = "#2c5aa0"; g.lineWidth = 4; g.beginPath(); g.moveTo(w - 50, 40); g.lineTo(w - 24, 48); g.lineTo(w - 24, 70); g.quadraticCurveTo(w - 37, 96, w - 50, 100); g.quadraticCurveTo(w - 63, 96, w - 76, 70); g.lineTo(w - 76, 48); g.closePath(); g.stroke();
+    }),
+    side: sideTex("#f6f8fd", "#c9d3ea", "#8fa2cc", "rgba(44, 90, 160, 0.85)"),
+  },
+  uncovered: {
+    top: canvasTex(256, 116, (g, w, h) => {
+      g.fillStyle = "#f7e1e3"; g.fillRect(0, 0, w, h);
+      g.strokeStyle = "#8c1d2f"; g.lineWidth = 5; g.beginPath(); g.moveTo(w / 2 - 34, 62); g.lineTo(w / 2, 30); g.lineTo(w / 2 + 34, 62); g.moveTo(w / 2 - 24, 56); g.lineTo(w / 2 - 24, 92); g.lineTo(w / 2 + 24, 92); g.lineTo(w / 2 + 24, 56); g.stroke();
+      g.strokeStyle = "#c81d4b"; g.lineWidth = 6; g.beginPath(); g.moveTo(w / 2 - 44, 24); g.lineTo(w / 2 + 44, 100); g.stroke();
+    }),
+    side: sideTex("#f8e6e8", "#e3aab2", "#c26b78", "rgba(200, 29, 75, 0.7)"),
+  },
+};
 const stackGeo = new THREE.BoxGeometry(1.5, 1, 0.68); stackGeo.translate(0, 0.5, 0);
-const billTopMat = new THREE.MeshStandardMaterial({ map: billTop, roughness: 0.85, transparent: true });
 
 // shape templates, about one unit in radius; clones share these geometries
 const TEMPLATES = (() => {
@@ -210,6 +282,21 @@ function shapeFor(obj, dom) {
   obj.spin = dom === 1 || dom === 2 ? t.children[0] : t;    // wind and tornado spin inside their tilted wrapper
   obj.shape = t; obj.dom = dom; obj.group.add(t);
 }
+function paperFor(part, kind) {
+  if (part.kind === kind) return;
+  part.kind = kind;
+  part.sideTex = PAPER[kind].side.clone();                   // own copy so each stack repeats its bundles to its height
+  part.sideMat.map = part.sideTex; part.topMat.map = PAPER[kind].top;
+  part.sideMat.needsUpdate = part.topMat.needsUpdate = true;
+}
+function makePart(fips, rot) {
+  const part = { sideMat: new THREE.MeshStandardMaterial({ roughness: 0.9, transparent: true }), topMat: new THREE.MeshStandardMaterial({ roughness: 0.85, transparent: true }), h0: 0, h1: 0 };
+  paperFor(part, "money");
+  part.mesh = new THREE.Mesh(stackGeo, [part.sideMat, part.sideMat, part.topMat, part.topMat, part.sideMat, part.sideMat]);
+  part.mesh.rotation.y = rot; part.mesh.scale.y = 0.001; part.mesh.visible = false;
+  part.mesh.userData.fips = fips; hits.push(part.mesh); world.add(part.mesh);
+  return part;
+}
 function makeObj(m) {
   const obj = { fips: m.fips, group: new THREE.Group(), p0: new THREE.Vector3(), p1: new THREE.Vector3(), s0: 0.001, s1: 1, alpha: 1, alphaTo: 1 };
   obj.mat = new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.15, flatShading: true, transparent: true, emissiveIntensity: 0.5 });
@@ -217,13 +304,8 @@ function makeObj(m) {
   obj.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, transparent: true, depthWrite: false, opacity: 0.18 }));
   obj.halo.scale.setScalar(3.4); obj.group.add(obj.halo);
   obj.hit = new THREE.Mesh(hitGeo, hitMat); obj.hit.userData.fips = m.fips; obj.group.add(obj.hit); hits.push(obj.hit);
-  obj.sideTex = billSide.clone();
-  obj.sideMat = new THREE.MeshStandardMaterial({ map: obj.sideTex, roughness: 0.9, transparent: true });
-  obj.topMat = billTopMat.clone();
-  obj.stack = new THREE.Mesh(stackGeo, [obj.sideMat, obj.sideMat, obj.topMat, obj.topMat, obj.sideMat, obj.sideMat]);
-  obj.stack.rotation.y = (Math.random() - 0.5) * 0.5; obj.stack.scale.y = 0.001; obj.stack.visible = false;
-  obj.stack.userData.fips = m.fips; hits.push(obj.stack); world.add(obj.stack);
-  obj.h0 = obj.h1 = 0;
+  const rot = (Math.random() - 0.5) * 0.5;
+  obj.parts = [makePart(m.fips, rot), makePart(m.fips, rot)];
   obj.group.scale.setScalar(0.001);
   world.add(obj.group); OBJ.set(m.fips, obj);
   return obj;
@@ -240,44 +322,47 @@ function initMap() {
   mapLines.add(lines(seg(topojson.mesh(TOPO, TOPO.objects.counties, (a, b) => a !== b)), 0x8a90a8, 0.35));
   mapLines.add(lines(seg(topojson.mesh(TOPO, TOPO.objects.counties, (a, b) => a === b)), 0x3d4460, 0.7));
   scene.add(mapLines);
-  for (const f of GEO.features) { const c = PROJ(d3.geoCentroid(f)); const m = M.get(+f.id); if (m) m.xy = c; }
+  for (const f of GEO.features) { const m = M.get(+f.id); if (m) m.xy = PROJ(d3.geoCentroid(f)); }
 }
 
-// the Texas median line in the ladder layout
-const medianLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-34, 0, 0), new THREE.Vector3(34, 0, 0)]),
-  new THREE.LineDashedMaterial({ color: 0x8c1d2f, dashSize: 1, gapSize: 0.8, transparent: true, opacity: 0.7 }));
-medianLine.computeLineDistances(); medianLine.visible = false; scene.add(medianLine);
-const LADDER_X = { 0: -24, 1: 0, 2: 24, [-1]: 40 }, LADDER_H = 40;
-const ladderY = (m) => { const v = m[state.lens]; return v == null || !isFinite(v) ? -LADDER_H / 2 - 5 : (lensScale(LENSES[state.lens].log && v <= 0 ? lensScale.domain()[0] : v) - 0.5) * LADDER_H; };
+// the "claims match storms" diagonal in the match layout
+const MATCH_W = 50, MATCH_H = 34;
+const matchLine = (() => {
+  const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-MATCH_W / 2, -MATCH_H / 2, 0), new THREE.Vector3(MATCH_W / 2, MATCH_H / 2, 0)]),
+    new THREE.LineDashedMaterial({ color: 0x8c1d2f, dashSize: 1, gapSize: 0.8, transparent: true, opacity: 0.7 }));
+  l.computeLineDistances(); l.visible = false; scene.add(l); return l;
+})();
 
 function layout() {
-  const sf = SIZE_FACTOR[state.mode], all = [...M.values()], cash = useCash();
-  const nodes = all.map((m) => ({ m, r: cash ? STORM_ON_CASH : sizeOf(m) * sf, h: cash ? stackH(m) : 0 }));
+  const sf = SIZE_FACTOR[state.mode], all = [...M.values()], stacked = useStack();
+  const nodes = all.map((m) => { const h = stacked ? [partH(m, 0), partH(m, 1)] : [0, 0]; return { m, h, r: stacked ? STORM_ON_STACK : sizeOf(m) * sf, top: h[0] + h[1] }; });
   if (state.mode === "map") {
-    for (const d of nodes) { d.x = d.m.xy[0]; d.z = d.m.xy[1]; d.y = d.h + d.r * 0.9; }
-  } else if (state.mode === "pattern") {
-    for (const d of nodes) { const g = GROUPS[d.m.type]; d.tx = g.x; d.tz = g.z; d.x = g.x + (Math.random() - 0.5); d.y = g.z + (Math.random() - 0.5); }
-    const sim = d3.forceSimulation(nodes).force("x", d3.forceX((d) => d.tx).strength(0.09)).force("y", d3.forceY((d) => d.tz).strength(0.09))
-      .force("c", d3.forceCollide((d) => d.r * 1.08 + 0.25).iterations(2)).stop();
+    for (const d of nodes) { d.x = d.m.xy[0]; d.z = d.m.xy[1]; }
+  } else if (state.mode === "burst") {
+    for (const d of nodes) { const g = BURST[d.m.burst]; d.tx = g.x; d.tz = g.z; d.x = g.x + (Math.random() - 0.5); d.y = g.z + (Math.random() - 0.5); }
+    const sim = d3.forceSimulation(nodes).force("x", d3.forceX((d) => d.tx).strength(0.08)).force("y", d3.forceY((d) => d.tz).strength(0.08))
+      .force("c", d3.forceCollide((d) => (stacked ? 1.05 : d.r * 1.08 + 0.25)).iterations(2)).stop();
     for (let i = 0; i < 280; i++) sim.tick();
-    for (const d of nodes) { d.z = d.y; d.y = d.h + d.r * 0.9; }
+    for (const d of nodes) d.z = d.y;
   } else {
-    for (const d of nodes) { d.tx = LADDER_X[d.m.dom]; d.ty = ladderY(d.m); d.x = d.tx + (Math.random() - 0.5) * 4; d.y = d.ty; }
-    const sim = d3.forceSimulation(nodes).force("x", d3.forceX((d) => d.tx).strength(0.06)).force("y", d3.forceY((d) => d.ty).strength(0.9))
-      .force("c", d3.forceCollide((d) => d.r * 1.05 + 0.15).iterations(2)).stop();
-    for (let i = 0; i < 260; i++) sim.tick();
-    for (const d of nodes) { d.z = 0; }
-    medianLine.position.y = ladderY({ [state.lens]: lensScale.median });
+    for (const d of nodes) {
+      if (d.m.claimGap == null) { d.r = 0.001; d.tx = d.x = 0; d.ty = d.y = -MATCH_H / 2 - 8; continue; }
+      d.tx = (d.m.stormDaysPct - 0.5) * MATCH_W; d.ty = (d.m.lossPerPolicyPct - 0.5) * MATCH_H; d.x = d.tx; d.y = d.ty;
+    }
+    const sim = d3.forceSimulation(nodes).force("x", d3.forceX((d) => d.tx).strength(0.5)).force("y", d3.forceY((d) => d.ty).strength(0.5))
+      .force("c", d3.forceCollide((d) => d.r * 0.95).iterations(1)).stop();
+    for (let i = 0; i < 120; i++) sim.tick();
   }
   for (const d of nodes) {
     const o = OBJ.get(d.m.fips);
-    o.p0.copy(o.group.position); o.p1.set(d.x, d.y, d.z);
+    const y = state.mode === "mismatch" ? d.y : d.top + d.r * 0.9, z = state.mode === "mismatch" ? 0 : d.z;
+    o.p0.copy(o.group.position); o.p1.set(d.x, y, z);
     o.s0 = o.group.scale.x; o.s1 = d.r;
-    o.h0 = o.stack.scale.y; o.h1 = d.h;
+    o.parts.forEach((p, i) => { p.h0 = p.mesh.scale.y; p.h1 = d.h[i]; });
   }
   tween.t0 = performance.now();
   mapLines.visible = state.mode === "map";
-  medianLine.visible = state.mode === "ladder";
+  matchLine.visible = state.mode === "mismatch";
   buildLabels();
 }
 
@@ -285,20 +370,23 @@ function applyStyle() {
   for (const m of M.values()) {
     const o = OBJ.get(m.fips) ?? makeObj(m);
     if (o.dom !== m.dom) shapeFor(o, m.dom);
+    state.stack.forEach((s, i) => paperFor(o.parts[i], s.kind));
     const c = new THREE.Color(colorOf(m));
     o.mat.color.copy(c); o.mat.emissive.copy(c).multiplyScalar(0.22);
     o.softMat.color.copy(c); o.softMat.emissive.copy(c).multiplyScalar(0.3);
     o.halo.material.color.copy(c);
-    o.alphaTo = state.pattern === "all" || state.pattern === m.type ? 1 : 0.08;
+    o.alphaTo = state.focus && !state.focus.has(m.fips) ? 0.8 : 1;
   }
 }
 
-// camera + layout tween
-const tween = { t0: -1e9, dur: 1100, cam0: null, cam1: null };
+// camera + layout tween; the story card on the left needs the scene nudged right and pulled back a little
+const tween = { t0: -1e9, dur: 1200, cam0: null, cam1: null };
 function moveCamera() {
-  const [p, t] = CAMERA[state.mode];
+  const [p, t] = CAMERA[state.mode].map((v) => new THREE.Vector3(...v)), dx = STORY_DX[state.mode];
+  t.x -= dx; p.x -= dx; p.sub(t).multiplyScalar(1.1).add(t);
   tween.cam0 = [camera.position.clone(), controls.target.clone()];
-  tween.cam1 = [new THREE.Vector3(...p), new THREE.Vector3(...t)];
+  tween.cam1 = [p, t];
+  tween.t0 = performance.now();
 }
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
@@ -308,27 +396,29 @@ const labelBox = $("#labels");
 function buildLabels() {
   labelBox.innerHTML = ""; LABELS = [];
   const add = (html, cls, pos, obj = null) => { const el = document.createElement("div"); el.className = `lab3d ${cls}`; el.innerHTML = html; labelBox.appendChild(el); LABELS.push({ el, pos, obj }); };
-  const all = [...M.values()];
+  const all = [...M.values()], V = (x, y, z) => new THREE.Vector3(x, y, z), ch = STORY[state.chapter];
+  const named = new Set(state.pair);
+  // the contrast pair gets a callout with its number
+  state.pair.forEach((f, i) => add(`${M.get(f).name}<small>${ch.pairValue(M.get(f))}</small>`, `pair ${i ? "b" : "a"}`, null, OBJ.get(f)));
+  const nameAll = (ms) => { for (const m of ms) if (!named.has(m.fips)) { named.add(m.fips); add(m.name, "", null, OBJ.get(m.fips)); } };
   if (state.mode === "map") {
-    for (const m of all.sort((a, b) => (b[state.size] ?? 0) - (a[state.size] ?? 0)).slice(0, 9)) add(m.name, "", null, OBJ.get(m.fips));
-  } else if (state.mode === "pattern") {
-    for (const [g, c] of Object.entries(GROUPS)) {
-      const members = all.filter((m) => m.type === g); if (!members.length) continue;
+    const rank = (m) => (state.stack.length ? stackTotal(m) : m[state.size] ?? 0);
+    nameAll(all.filter((m) => !state.focus || state.focus.has(m.fips)).sort((a, b) => rank(b) - rank(a)).slice(0, state.focus ? 10 : 6));
+  } else if (state.mode === "burst") {
+    for (const [k, g] of Object.entries(BURST)) {
+      const members = all.filter((m) => m.burst === k); if (!members.length) continue;
       const zs = members.map((m) => OBJ.get(m.fips).p1.z);
-      add(`${g} · ${members.length}<small>${c.note}</small>`, "group", new THREE.Vector3(c.x, 0, Math.min(...zs) - 4.5));
+      add(`${g.name} · ${members.length}<small>${g.note}</small>`, "group", V(g.x, 0, Math.max(...zs) + 4));
     }
-    add("fewer ← damaging days per year → more", "note", new THREE.Vector3(0, 0, -40));
   } else {
-    for (const p of [...PERILS, { k: -1, name: "No reports" }]) {
-      const n = all.filter((m) => m.dom === p.k).length; if (!n) continue;
-      add(`${p.k >= 0 ? `${p.name}-driven` : p.name} · ${n}`, "group", new THREE.Vector3(LADDER_X[p.k], LADDER_H / 2 + 5, 0));
-    }
-    const L = LENSES[state.lens];
-    for (const v of lensScale.ticks(L.log ? 4 : 5)) add(L.fmt(v), "axis", new THREE.Vector3(-33, (lensScale(v) - 0.5) * LADDER_H, 0));
-    add(`Texas median ${L.fmt(lensScale.median)}`, "median", new THREE.Vector3(9, medianLine.position.y, 0));
-    if (all.some((m) => m[state.lens] == null)) add("no data", "axis", new THREE.Vector3(-33, -LADDER_H / 2 - 5, 0));
+    add("More claims than storms suggest", "zone over", V(4, MATCH_H / 2 + 5, 0));
+    add("Fewer claims than storms suggest", "zone under", V(MATCH_W / 4, -MATCH_H / 2 - 1, 0));
+    add("fewer storm days  ←  storm frequency rank  →  more storm days", "note", V(0, -MATCH_H / 2 - 5, 0));
+    add("↑ higher<br>claims", "axis", V(-MATCH_W / 2 - 1.5, MATCH_H / 2 - 1, 0));
+    add("↓ lower<br>claims", "axis", V(-MATCH_W / 2 - 1.5, -MATCH_H / 2 + 1, 0));
+    nameAll(all.filter((x) => x.claimGap != null).sort((a, b) => b.claimGap - a.claimGap).slice(0, 4));
   }
-  if (state.sel && !LABELS.some((l) => l.obj?.fips === state.sel)) add(M.get(state.sel).name, "", null, OBJ.get(state.sel));
+  if (state.sel && !named.has(state.sel)) add(M.get(state.sel).name, "", null, OBJ.get(state.sel));
 }
 const v3 = new THREE.Vector3();
 function placeLabels() {
@@ -338,13 +428,14 @@ function placeLabels() {
     v3.project(camera);
     if (v3.z > 1) { l.el.style.display = "none"; continue; }
     l.el.style.display = ""; l.el.style.left = `${((v3.x + 1) / 2) * w}px`; l.el.style.top = `${((1 - v3.y) / 2) * h}px`;
-    if (l.obj) l.el.style.opacity = l.obj.alpha;
+    if (l.obj && !l.el.classList.contains("pair")) l.el.style.opacity = l.obj.alpha;
   }
 }
 
-// selection ring
-const selRing = new THREE.Mesh(new THREE.RingGeometry(1.3, 1.42, 64), new THREE.MeshBasicMaterial({ color: 0x8c1d2f, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
-selRing.visible = false; scene.add(selRing);
+// rings: the selected county, and the two counties of the contrast pair
+const ring = (color) => { const r = new THREE.Mesh(new THREE.RingGeometry(1.3, 1.42, 64), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false })); r.visible = false; scene.add(r); return r; };
+const selRing = ring(0x1d2233), pairRings = [ring(0x8c1d2f), ring(0x8c1d2f)];
+const placeRing = (r, f) => { const o = f && OBJ.get(f); r.visible = !!o; if (!o) return; r.position.copy(o.group.position); r.scale.setScalar(Math.max(o.group.scale.x, 0.7) * 1.1); r.lookAt(camera.position); };
 
 // ---------------------------------------------------------------- render loop + picking
 const raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2(-9, -9);
@@ -355,11 +446,14 @@ function frame(now) {
   for (const o of OBJ.values()) {
     if (k < 1) { o.group.position.lerpVectors(o.p0, o.p1, e); o.group.scale.setScalar(o.s0 + (o.s1 - o.s0) * e); }
     else if (o.group.position.distanceToSquared(o.p1) > 0) { o.group.position.copy(o.p1); o.group.scale.setScalar(o.s1); }
-    const h = k < 1 ? o.h0 + (o.h1 - o.h0) * e : o.h1;
-    o.stack.visible = h > 0.002; o.stack.scale.y = Math.max(h, 0.001);
-    o.stack.position.set(o.group.position.x, 0, o.group.position.z);
-    o.sideTex.repeat.set(1, h / BUNDLE_H);
-    o.sideMat.opacity = o.topMat.opacity = o.alpha;
+    let base = 0;
+    for (const p of o.parts) {
+      const h = k < 1 ? p.h0 + (p.h1 - p.h0) * e : p.h1;
+      p.mesh.visible = h > 0.002; p.mesh.scale.y = Math.max(h, 0.001);
+      p.mesh.position.set(o.group.position.x, base, o.group.position.z); base += h;
+      p.sideTex.repeat.set(1, h / BUNDLE_H);
+      p.sideMat.opacity = p.topMat.opacity = o.alpha;
+    }
     if (o.spin) o.spin.rotation.y += dt * SPIN[o.dom];
     if (o.dom === 1) o.shape.rotation.x += (WIND_TILT[state.mode] - o.shape.rotation.x) * Math.min(1, dt * 4);
     o.alpha += (o.alphaTo - o.alpha) * Math.min(1, dt * 8);
@@ -372,8 +466,7 @@ function frame(now) {
     else tween.cam1 = null;
   }
   controls.update();
-  if (state.sel) { const o = OBJ.get(state.sel); selRing.visible = true; selRing.position.copy(o.group.position); selRing.scale.setScalar(o.group.scale.x); selRing.lookAt(camera.position); }
-  else selRing.visible = false;
+  placeRing(selRing, state.sel); pairRings.forEach((r, i) => placeRing(r, state.pair[i]));
   if (pointerEvt) pick();
   renderer.render(scene, camera);
   placeLabels();
@@ -381,7 +474,7 @@ function frame(now) {
 }
 function pick() {
   raycaster.setFromCamera(pointer, camera);
-  const hit = raycaster.intersectObjects(hits, false).find((h) => OBJ.get(h.object.userData.fips).alphaTo > 0.5);
+  const hit = raycaster.intersectObjects(hits, false).find((h) => OBJ.get(h.object.userData.fips).s1 > 0.01);
   const f = hit ? hit.object.userData.fips : null;
   if (f !== state.hover) { state.hover = f; canvas.style.cursor = f ? "pointer" : ""; }
   if (f) showTip(pointerEvt, M.get(f)); else $("#tip").hidden = true;
@@ -396,10 +489,9 @@ canvas.addEventListener("pointerup", (e) => {
 });
 
 function showTip(e, m) {
-  const tip = $("#tip"), L = LENSES[state.lens], S = SIZES[state.size];
-  const drive = m.dom >= 0 ? `${PERILS[m.dom].long}${m.domShare != null ? ` · ${fmtPct(m.domShare)} of damage` : " · by reports"}` : "no storm reports";
-  tip.innerHTML = `<b>${m.name}</b> <small>County</small><br><span class="sw" style="background:${colorOf(m)}"></span>${L.tab}: <b>${L.fmt(m[state.lens])}</b><br>
-    Shape: ${drive}<br>Size: ${S.label} ${S.fmt(m[state.size])}<br><small>${m.type}</small>`;
+  const tip = $("#tip"), ch = STORY[state.chapter];
+  const drive = m.dom >= 0 ? `${PERILS[m.dom].long}${m.domShare != null ? ` · ${fmtPct(m.domShare)} of damage` : ""}` : "no storm damage";
+  tip.innerHTML = `<b>${m.name}</b> <small>County</small><br><span class="sw" style="background:${colorOf(m)}"></span>${ch.tip(m)}<br>Main peril: ${drive}${m.coast ? `<br><small>Coastal: most wind claims go to TWIA, not in this data</small>` : ""}`;
   tip.hidden = false;
   tip.style.left = `${Math.min(e.clientX + 16, innerWidth - tip.offsetWidth - 10)}px`;
   tip.style.top = `${Math.min(e.clientY + 16, innerHeight - tip.offsetHeight - 10)}px`;
@@ -415,54 +507,142 @@ function icon(k, color) {
   if (k === 2) return `<path d="M8 10 Q30 2 52 10 Q44 22 37 32 Q32 42 30 55 Q27 42 23 32 Q16 22 8 10Z" fill="${color}" fill-opacity=".55" stroke="${color}" stroke-width="2"/><path d="M14 14 Q30 20 46 13 M20 25 Q31 29 41 24 M25 36 Q31 38 36 35" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="2"/>`;
   return `<circle cx="30" cy="30" r="9" fill="${color}"/>`;
 }
-// a small stack of n bundles of bills, for legends
-const cashSVG = (n) => `<svg viewBox="0 0 46 ${8 + n * 9}" width="46" height="${8 + n * 9}">${d3.range(n).map((i) => { const y = 4 + (n - 1 - i) * 9;
-  return `<rect x="${3 + (i % 2) * 2}" y="${y}" width="38" height="8" rx="1" fill="#cfe3bf" stroke="#5f8f55"/><rect x="${25 + (i % 2) * 2}" y="${y}" width="5" height="8" fill="#c4a052"/>`; }).join("")}</svg>`;
-// a bar drawn as bills piled up: one slab per few pixels
+const stackSVG = (kind, n) => { const [f, e, s] = PAPER_KIND[kind].c; return `<svg viewBox="0 0 46 ${4 + n * 9}" width="40" height="${(4 + n * 9) * 0.87}">${d3.range(n).map((i) => { const y = 2 + (n - 1 - i) * 9;
+  return `<rect x="${3 + (i % 2) * 2}" y="${y}" width="38" height="8" rx="1" fill="${f}" stroke="${e}"/><rect x="${25 + (i % 2) * 2}" y="${y}" width="5" height="8" fill="${s}"/>`; }).join("")}</svg>`; };
 const billBar = (x, yBase, w, h, fill, edge) => { let out = ""; for (let y = yBase - 3.2; y >= yBase - h - 0.01; y -= 3.2) out += `<rect x="${x}" y="${y}" width="${w}" height="2.6" rx=".6" fill="${fill}" stroke="${edge}" stroke-width=".5"/>`; return out; };
 const iconSVG = (k, color, cls = "") => `<svg viewBox="0 0 60 60" class="${cls}">${icon(k, color)}</svg>`;
 
-// ---------------------------------------------------------------- UI: tabs, controls, legends, KPIs
-function renderUI() {
-  $("#tabs").innerHTML = Object.entries(LENSES).map(([k, l]) => `<button data-k="${k}" class="${k === state.lens ? "on" : ""}" title="${l.long}">${l.tab}</button>`).join("");
-  $("#f-size").innerHTML = Object.entries(SIZES).map(([k, s]) => `<label><input type="radio" name="sz" value="${k}" ${k === state.size ? "checked" : ""}/>${s.label}</label>`).join("");
-  $("#f-perils").innerHTML = PERILS.map((p) => `<button data-p="${p.k}" class="${state.perils.has(p.k) ? "" : "off"}" style="--c:${p.c}">${iconSVG(p.k, state.perils.has(p.k) ? p.c : "#b4b8c8")}${p.name}</button>`).join("");
-  document.querySelectorAll("#f-window button").forEach((b) => b.classList.toggle("on", +b.dataset.v === state.window));
-  document.querySelectorAll("#mode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === state.mode));
-  $("#mode-note").textContent = MODE_NOTE[state.mode];
-  const types = Object.keys(GROUPS), counts = Object.fromEntries(types.map((t) => [t, [...M.values()].filter((m) => m.type === t).length]));
-  $("#f-pattern").innerHTML = `<option value="all">All damage patterns</option>` + types.map((t) => `<option value="${t}" ${t === state.pattern ? "selected" : ""}>${t} (${counts[t]})</option>`).join("");
-  $("#kpis").innerHTML = `<div><b>${fmtMoney(TX.paid)}</b>TDI paid losses 2019–2025</div><div><b>${fmtDollar(TX.lossPerPolicy)}</b>paid loss per policy per year</div>
-    <div><b>${fmtPct(TX.windShare)}</b>of losses from wind &amp; hail</div><div><b>${fmtDollar(TX.prem19)} <i>→</i> ${fmtDollar(TX.prem25)}</b>average premium 2019 → 2025</div>`;
-  // legends
-  $("#shape-legend").innerHTML = PERILS.map((p) => `<div>${iconSVG(p.k, p.c)}<span>${p.name}</span></div>`).join("");
-  const S = SIZES[state.size], ticks = [sizeOf.max, sizeOf.max / 4, sizeOf.max / 25].filter((v) => v > 0);
-  if (useCash()) {
-    const tallest = [...M.values()].sort((a, b) => (b[state.size] ?? 0) - (a[state.size] ?? 0))[0];
-    $("#size-legend").innerHTML = `<div>${S.label}</div><div class="cash-leg">${cashSVG(3)}<span>stack height = dollars<br>one bundle ≈ <b>${fmtMoney(bundle)}</b><br>tallest: ${tallest.name} ${fmtMoney(tallest[state.size])}</span></div>`;
+// ---------------------------------------------------------------- the story
+const pool = (ok = () => true) => [...M.values()].filter(ok);
+const top = (key, n = 5, ok = () => true, dir = -1) => pool((m) => m[key] != null && isFinite(m[key]) && ok(m)).sort((a, b) => dir * (a[key] - b[key])).slice(0, n);
+const rows = (ms, key, fmt, extra = () => "") => { const mx = d3.max(ms, (m) => Math.abs(m[key])) || 1; return ms.map((m) => ({ m, value: fmt(m[key]) + extra(m), bar: Math.abs(m[key]) / mx })); };
+const big = (m) => m.policies >= MIN_POL && !m.coast;
+// each chapter picks two counties that make its point by contrast
+const PAIRS = {
+  storms: () => [top("stormDays", 1)[0], top("stormDays", 1, () => true, 1)[0]],
+  damage: () => { const a = top("damage", 1)[0]; return [a, top("damage", 1, (m) => m.stormDays >= a.stormDays * 0.9 && m !== a, 1)[0]]; },
+  burst: () => { const t = top("damage", 5); return [t.reduce((a, b) => (b.top1 > a.top1 ? b : a)), t.reduce((a, b) => (b.top1 < a.top1 ? b : a))]; },
+  homes: () => { const ok = (m) => m.owners >= 20000 && m.policies < m.owners; return [top("coverage", 1, ok)[0], top("coverage", 1, ok, 1)[0]]; },
+  premium: () => { const ok = (m) => big(m) && m.policies >= 5000; return [top("lossRatio", 1, ok)[0], top("lossRatio", 1, ok, 1)[0]]; },
+  match: () => [top("claimGap", 1)[0], top("claimGap", 1, () => true, 1)[0]],
+};
+let P = [];                                                  // the current pair, as county records
+const vs = (fmt, key) => `<div class="st-vs">${P.map((m, i) => `<span class="${i ? "b" : "a"}"><b>${fmt(m[key])}</b>${m.name}</span>`).join("<i>vs</i>")}</div>`;
+const STORY = [
+  { short: "Storms", title: "Storms hit every part of Texas", mode: "map", lens: "peril", size: "stormDays", pair: PAIRS.storms,
+    stat: () => [fmtInt(TX.reports), "hail, wind and tornado reports across the state, 2006–2025"],
+    text: () => `All ${TX.counties} Texas counties had storms, but not the same storms: hail causes most damage in ${TX.domCount[0]} counties, thunderstorm wind in ${TX.domCount[1]} and tornadoes in ${TX.domCount[2]}. ${P[0].name} County averages ${fmt1(P[0].stormDays)} storm days a year; ${P[1].name} County only ${fmt1(P[1].stormDays)}.`,
+    contrast: () => vs(fmt1, "stormDays"), pairValue: (m) => `${fmt1(m.stormDays)} storm days / yr`,
+    read: "Shape and colour = main storm. Bigger = more storm days a year.",
+    tip: (m) => `${fmt1(m.stormDays)} storm days a year`,
+    list: () => [{ title: "Most storm days", sub: "storm days per year", rows: rows(top("stormDays"), "stormDays", fmt1) }] },
+  { short: "Damage", title: "Storms turn into property damage", mode: "map", lens: "peril", size: "stormDays", stack: [{ key: "damage", kind: "damage" }], pair: PAIRS.damage,
+    stat: () => [fmtMoney(TX.damageYr), "of property damage a year (NOAA estimates, 2025 $)"],
+    text: () => `More storms do not always mean more damage. ${P[0].name} and ${P[1].name} see about the same number of storm days a year, but ${P[0].name} loses ${fmtMoney(P[0].damage)} a year and ${P[1].name} ${fmtMoney(P[1].damage)}. Hail is ${fmtPct(TX.hailRep)} of storm reports yet ${fmtPct(TX.hailDmg)} of the damage: one hailstorm over a city breaks thousands of roofs.`,
+    contrast: () => vs(fmtMoney, "damage"), pairValue: (m) => `${fmtMoney(m.damage)} / yr · ${fmt1(m.stormDays)} storm days`,
+    read: "Stack of money = property damage a year. Storm on top = main peril.",
+    tip: (m) => `${fmtMoney(m.damage)} damage a year`,
+    list: () => [{ title: "Most property damage", sub: "NOAA damage per year", rows: rows(top("damage"), "damage", fmtMoney) }] },
+  { short: "One day vs many", title: "One bad day, or many small ones", mode: "burst", lens: "top1", size: "damage", stack: [{ key: "damage", kind: "damage" }], pair: PAIRS.burst,
+    stat: () => [`${TX.burst.oneday} · ${TX.burst.spread}`, "counties hit by one big day · by many smaller days"],
+    text: () => `${P[0].name} and ${P[1].name} lose similar money a year (${fmtMoney(P[0].damage)} and ${fmtMoney(P[1].damage)}). But ${fmtPct(P[0].top1)} of ${P[0].name}'s 20 years of damage came on a single day, while ${P[1].name}'s worst day was only ${fmtPct(P[1].top1)}. Steady losses can be priced into premiums; one-day catastrophes need reinsurance and capital.`,
+    contrast: () => vs(fmtPct, "top1"), pairValue: (m) => `${fmtPct(m.top1)} of damage on its worst day`,
+    read: "Stack of money = damage a year. Colour = share of 20 years of damage on the worst day (blue spread out, red one day).",
+    tip: (m) => `${fmtPct(m.top1)} of 20 years of damage on its worst day`,
+    list: () => [{ title: "Hit hardest on one day", sub: "share of damage on the worst day (damage over $1M a year)", rows: rows(top("top1", 5, (m) => m.damage >= 1e6), "top1", fmtPct) }] },
+  { short: "Insured homes", title: "Insured homes, and homes without a policy", mode: "map", lens: "coverage", size: "policies", stack: [{ key: "insured", kind: "policy" }, { key: "uncovered", kind: "uncovered" }], pair: PAIRS.homes,
+    stat: () => [fmtPct(TX.coverage), `of owner-occupied homes are insured · ${fmtCount(TX.uncovered)} are not`],
+    text: () => `${fmtCount(TX.policies)} homeowners policies cover about ${fmtMoney(TX.insuredValue)} of homes. Each stack is a county's owner-occupied homes: the blue part is insured, the rose part has no homeowners policy, so a storm repair falls on the owner. ${P[0].name} insures ${fmtPct(P[0].coverage)} of its owner homes; ${P[1].name} only ${fmtPct(P[1].coverage)}. Homes on the Texas FAIR Plan or surplus lines are not counted, so the gap is an upper bound.`,
+    contrast: () => vs(fmtPct, "coverage"), pairValue: (m) => `${fmtPct(m.coverage)} insured · ${fmtCount(m.uncovered)} without`,
+    read: "Stack = owner homes: blue = insured, rose = no policy. Colour = share insured (orange low, blue high).",
+    tip: (m) => `${fmtPct(m.coverage)} of owner homes insured · ${fmtCount(m.uncovered)} without a policy`,
+    list: () => [{ title: "Most homes without a policy", sub: "owner homes without a policy (share)", rows: rows(top("uncovered"), "uncovered", fmtCount, (m) => ` · ${fmtPct(m.uncoveredShare)}`) }] },
+  { short: "Premium vs claims", title: "Premium in, claims out", mode: "map", lens: "lossRatio", size: "policies", stack: [{ key: "paidPerYear", kind: "claims" }, { key: "keptPos", kind: "money" }], pair: PAIRS.premium,
+    special: (m) => (m.coast ? COASTAL : null),
+    stat: () => [fmtCents(TX.lossRatio), `paid in claims per premium dollar · ${fmtMoney(TX.paid)} paid 2019–2025`],
+    text: () => `Each stack is a county's yearly premium (estimated from policies × average premium): the red part went back out as claims, the green part stayed with insurers. In ${P[0].name}, claims took ${fmtCents(P[0].lossRatio)} of every premium dollar; in ${P[1].name}, only ${fmtCents(P[1].lossRatio)}. Coastal counties (purple) look cheap only because their wind claims go to TWIA, which this data leaves out.`,
+    contrast: () => vs(fmtCents, "lossRatio"), pairValue: (m) => `${fmtCents(m.lossRatio)} of each premium $ paid out`,
+    read: "Stack = premium a year: red = claims paid, green = kept. Colour = claims per premium dollar (green low, red high).",
+    tip: (m) => `${fmtCents(m.lossRatio)} paid per premium dollar · ${fmtMoney(m.paidPerYear)} claims, ${fmtMoney(m.premiumYear)} premium a year`,
+    list: () => [{ title: "Claims eat the premium", sub: `claims per premium dollar (${fmtInt(MIN_POL)}+ policies)`, rows: rows(top("lossRatio", 5, big), "lossRatio", fmtCents) }] },
+  { short: "Mismatch", title: "Few storms, many claims", mode: "mismatch", lens: "claimGap", size: "policies", pair: PAIRS.match,
+    stat: () => [`${TX.nGap}`, "counties claim far more than their storms suggest"],
+    text: () => `Left to right: how often storms hit. Bottom to top: how much is paid per policy. On the dashed line, claims match the storms. ${P[0].name} sits far above it (${fmtGap(P[0].claimGap)}): few storms, high claims, which can mean older roofs, costly repairs or claim practices worth a look. ${P[1].name} is the opposite (${fmtGap(P[1].claimGap)}): frequent storms, modest claims. Coastal and very small counties are left out.`,
+    contrast: () => vs(fmtGap, "claimGap"), pairValue: (m) => `claims ${fmtGap(m.claimGap)} vs storms`,
+    read: "Above the line = more claims than storms. Size = policies. Colour = gap (red above, blue below).",
+    tip: (m) => (m.claimGap == null ? "not ranked (coastal or small)" : `claim rank ${fmtGap(m.claimGap)} vs storm rank`),
+    list: () => [{ title: "Claims far above storms", sub: "claim rank minus storm rank", rows: rows(top("claimGap"), "claimGap", fmtGap) }] },
+  { short: "Playbook", title: "Where to grow, review and protect", mode: "map", lens: "category", size: "policies", pair: () => [],
+    focus: () => new Set(pool((m) => m.cat).map((m) => m.fips)),
+    stat: () => [`${TX.cat.growth} · ${TX.cat.over} · ${TX.cat.rich}`, "counties to grow · review · protect"],
+    text: () => Object.values(CATS).map((c) => `<span class="cat-line"><i style="background:${c.c}"></i><b>${c.name}</b>: ${c.note}.</span>`).join("") + `<span class="cat-line muted">Light blue: no flag. Coastal TWIA counties and books under ${fmtInt(MIN_POL)} policies are not flagged.</span>`,
+    contrast: () => "", pairValue: () => "",
+    read: "Size = policies. Click any county for its insurance card.",
+    tip: (m) => (m.cat ? `${CATS[m.cat].name}: ${fmtCents(m.lossRatio)} claims per premium $ · ${fmtCount(m.uncovered)} homes without a policy` : `No flag · ${fmtCents(m.lossRatio)} claims per premium $`),
+    list: () => [
+      { title: CATS.growth.name, sub: "owner homes without a policy", color: CATS.growth.c, rows: rows(top("uncovered", 4, (m) => m.cat === "growth"), "uncovered", fmtCount) },
+      { title: CATS.over.name, sub: "claims per premium dollar", color: CATS.over.c, rows: rows(top("lossRatio", 4, (m) => m.cat === "over"), "lossRatio", fmtCents) },
+      { title: CATS.rich.name, sub: "premium kept per year", color: CATS.rich.c, rows: rows(top("premiumKept", 4, (m) => m.cat === "rich"), "premiumKept", fmtMoney) },
+    ] },
+];
+
+function renderStory() {
+  const i = state.chapter, ch = STORY[i], [v, lab] = ch.stat();
+  $("#chapters").innerHTML = STORY.map((c, j) => `<button data-i="${j}" class="${j === i ? "on" : j < i ? "done" : ""}"><i>${j + 1}</i>${c.short}</button>`).join("");
+  $("#story").innerHTML = `<div class="st-step">Chapter ${i + 1} of ${STORY.length}</div><h2>${ch.title}</h2>
+    <div class="st-stat"><b>${v}</b><span>${lab}</span></div>${ch.contrast()}<p>${ch.text()}</p><div class="st-read">${ch.read}</div>
+    <div class="st-nav"><button class="ghost" data-go="${i - 1}" ${i === 0 ? "disabled" : ""}>← Back</button>
+      <div class="st-dots">${STORY.map((_, j) => `<i class="${j === i ? "on" : ""}"></i>`).join("")}</div>
+      <button data-go="${i + 1}" ${i === STORY.length - 1 ? "disabled" : ""}>Next →</button></div>`;
+  $("#insights").innerHTML = `<h3>COUNTIES TO KNOW</h3>` + ch.list().map((g) => `<div class="ins-group"><div class="ins-title">${g.color ? `<i style="background:${g.color}"></i>` : ""}${g.title}<span>${g.sub}</span></div>` +
+    g.rows.map((r, k) => `<button class="ins-row" data-f="${r.m.fips}"><em>${k + 1}</em><span>${r.m.name}</span><b>${r.value}</b><u style="width:${Math.max(4, r.bar * 100)}%;background:${g.color ?? colorOf(r.m)}"></u></button>`).join("") + `</div>`).join("");
+}
+function goChapter(i) {
+  const ch = STORY[i];
+  Object.assign(state, { chapter: i, mode: ch.mode, lens: ch.lens, size: ch.size, stack: ch.stack ?? [], special: ch.special ?? null, sel: null });
+  state.focus = ch.focus ? ch.focus() : null;
+  P = ch.pair(); state.pair = P.map((m) => m.fips);
+  buildScales(); applyStyle(); renderStory(); renderLegend(); renderPanels(); layout(); moveCamera();
+}
+
+// ---------------------------------------------------------------- legend: shapes, stack, colour (every colour named)
+function renderLegend() {
+  const L = LENSES[state.lens], ink = "#3c4256";
+  $("#shape-legend").innerHTML = `<div class="lg-title">Shape = main storm</div><div class="lg-row">${PERILS.map((p) => `<div>${iconSVG(p.k, L.type === "peril" ? p.c : ink)}<span>${p.name}</span></div>`).join("")}</div>`;
+  if (useStack()) {
+    $("#size-legend").innerHTML = `<div class="lg-title">Stack height = amount · one bundle ≈ ${state.stack[0].kind === "policy" ? `${fmtCount(bundle)} homes` : fmtMoney(bundle)}</div><div class="lg-row">${state.stack.map((s) => `<div class="cash-leg">${stackSVG(s.kind, 3)}<span>${PAPER_KIND[s.kind].label}</span></div>`).join("")}</div>`;
   } else {
-  const px = (v) => sizeOf.scale(v) * 7, R = px(ticks[0]);
-  const base = R * 2 + 8;
-  $("#size-legend").innerHTML = `<div>${S.label}</div><svg width="${R * 2 + 70}" height="${base + 2}">${ticks.map((v) => `<circle cx="${R + 1}" cy="${base - px(v)}" r="${px(v)}" fill="none" stroke="#8e95c9" stroke-opacity=".7"/><line x1="${R + 1}" x2="${R * 2 + 8}" y1="${base - 2 * px(v)}" y2="${base - 2 * px(v)}" stroke="#8e95c9" stroke-opacity=".4"/><text x="${R * 2 + 10}" y="${base + 3.5 - 2 * px(v)}">${S.fmt(v)}</text>`).join("")}</svg>`;
+    const ticks = [sizeOf.max, sizeOf.max / 4, sizeOf.max / 25], px = (v) => sizeOf.scale(v) * 6, R = px(ticks[0]), base = R * 2 + 8, f = state.size === "stormDays" ? fmt1 : fmtCount;
+    $("#size-legend").innerHTML = `<div class="lg-title">Size = ${state.size === "stormDays" ? "storm days a year" : "homeowners policies"}</div><svg width="${R * 2 + 64}" height="${base + 2}">${ticks.map((v) => `<circle cx="${R + 1}" cy="${base - px(v)}" r="${px(v)}" fill="none" stroke="#3c4256" stroke-opacity=".55"/><line x1="${R + 1}" x2="${R * 2 + 8}" y1="${base - 2 * px(v)}" y2="${base - 2 * px(v)}" stroke="#3c4256" stroke-opacity=".3"/><text x="${R * 2 + 10}" y="${base + 3.5 - 2 * px(v)}">${f(v)}</text>`).join("")}</svg>`;
   }
-  const L = LENSES[state.lens], [lo, hi] = lensScale.domain();
-  const stops = d3.range(0, 1.01, 0.1).map((t) => `${RAMP(t)} ${t * 100}%`).join(",");
-  $("#ramp").innerHTML = `<div class="title">${L.long}</div><div class="bar" style="background:linear-gradient(90deg,${stops})"></div>
-    <div class="ticks"><span>${L.fmt(lo)} or less</span><span>Texas median ${L.fmt(lensScale.median)}</span><span>${L.fmt(hi)} or more</span></div>`;
-  document.querySelectorAll(".g-ico").forEach((s) => (s.innerHTML = icon(+s.dataset.shape, PERILS[+s.dataset.shape].c)));
+  const sw = (c, t) => `<span><i style="background:${c}"></i>${t}</span>`;
+  const extra = [];
+  if (state.special && pool((m) => state.special(m)).length) extra.push(sw(COASTAL.c, COASTAL.name));
+  if (L.type !== "cat" && L.type !== "peril" && state.mode !== "mismatch" && pool((m) => m[state.lens] == null && !state.special?.(m)).length) extra.push(sw(NO_DATA, "no data"));
+  let body;
+  if (L.type === "peril") body = `<div class="swatches">${PERILS.map((p) => sw(p.c, p.long)).join("")}</div>`;
+  else if (L.type === "cat") body = `<div class="swatches">${Object.values(CATS).map((c) => sw(c.c, c.name)).join("")}${sw(OTHER.c, OTHER.name)}</div>`;
+  else {
+    const stops = d3.range(0, 1.01, 0.1).map((t) => `${colorOf.ramp(t)} ${t * 100}%`).join(",");
+    body = `<div class="bar" style="background:linear-gradient(90deg,${stops})"></div><div class="ticks"><span>${L.fmt(lensScale.lo)} or less</span><span>Texas ${L.type === "div" ? "" : "median "}${L.fmt(lensScale.mid)}</span><span>${L.fmt(lensScale.hi)} or more</span></div>`;
+  }
+  $("#ramp").innerHTML = `<div class="title">Colour = ${L.long}</div>${body}${extra.length ? `<div class="swatches">${extra.join("")}</div>` : ""}`;
+}
+function renderPanels() {
+  $("#card").hidden = !state.sel;
+  $("#insights").hidden = !!state.sel;
 }
 
 // ---------------------------------------------------------------- county card
 async function select(fips) {
   state.sel = fips;
-  $("#card").hidden = !fips; $("#controls").hidden = !!fips;
-  buildLabels();
+  renderPanels(); buildLabels();
   if (!fips) return;
-  const m = M.get(fips), L = LENSES;
+  const m = M.get(fips);
   const tdi = m.tdi.filter((t) => t.paid != null), maxP = d3.max(tdi, (t) => Math.max(0, t.paid)) || 1, bw = 268 / 7;
-  const bars = tdi.map((t, i) => {
+  const bars = tdi.map((t) => {
     const h = (Math.max(0, t.paid) / maxP) * 52, hw = (Math.max(0, Math.min(t.wind ?? 0, t.paid)) / maxP) * 52, x = (t.year - 2019) * bw + 4;
-    return `<g><title>${t.year}: ${fmtMoney(t.paid)} paid, ${fmtMoney(t.wind)} wind & hail</title>${billBar(x, 56, bw - 8, h, "#dfeed3", "#8fb47f")}${billBar(x, 56, bw - 8, hw, "#7fae6c", "#4d7d44")}</g><text x="${x + (bw - 8) / 2}" y="68" text-anchor="middle">${String(t.year).slice(2)}</text>`;
+    return `<g><title>${t.year}: ${fmtMoney(t.paid)} paid, ${fmtMoney(t.wind)} wind & hail</title>${billBar(x, 56, bw - 8, h, "#fadbd1", "#e59a83")}${billBar(x, 56, bw - 8, hw, "#e59a83", "#c0533a")}</g><text x="${x + (bw - 8) / 2}" y="68" text-anchor="middle">${String(t.year).slice(2)}</text>`;
   }).join("");
   const stack = (vals, y, label) => {
     const tot = d3.sum(vals) || 1; let x = 52;
@@ -471,35 +651,36 @@ async function select(fips) {
       x += w; return s;
     }).join("");
   };
-  const lpRank = [...M.values()].filter((x) => x.lossPerPolicy != null).sort((a, b) => b.lossPerPolicy - a.lossPerPolicy).findIndex((x) => x.fips === fips) + 1;
   const peril = m.dom >= 0 ? PERILS[m.dom] : null;
+  const badges = [`<span class="badge">${BURST[m.burst].name}</span>`, m.cat ? `<span class="badge solid" style="background:${CATS[m.cat].c};border-color:${CATS[m.cat].c}">${CATS[m.cat].name}</span>` : "",
+    m.coast ? `<span class="badge coast" title="Most wind claims go to TWIA, which is not in this data">TWIA coast</span>` : ""].join("");
   $("#card").innerHTML = `
-    <div class="c-head">${iconSVG(m.dom, peril ? peril.c : NO_DATA)}<div><h2>${m.name} County</h2><span class="badge">${m.type}</span></div><button class="c-close" title="Back to controls">×</button></div>
+    <div class="c-head">${iconSVG(m.dom, peril ? peril.c : NO_DATA)}<div><h2>${m.name} County</h2>${badges}</div><button class="c-close" title="Back">×</button></div>
     <div class="c-kpis">
-      <div><b>${fmtDollar(m.lossPerPolicy)}</b>paid loss / policy / yr <small>· #${lpRank || "n/a"} of 254</small></div>
-      <div><b>${fmtPct(m.windShare)}</b>of paid losses from wind &amp; hail</div>
-      <div><b>${fmtDollar(m.premium)}</b>avg premium 2025 <small>· ${L.premiumChange.fmt(m.premiumChange)} since 2019</small></div>
-      <div><b>${fmtInt(m.policies)}</b>homeowners policies (2025)</div>
-      <div><b>${fmtMoney(m.damage)}</b>NOAA storm damage / yr <small>· last ${state.window} yrs</small></div>
-      <div><b>${fmtPct(m.top1)}</b>of that damage on its worst day</div>
+      <div><b>${fmtMoney(m.damage)}</b>storm damage / yr <small>· ${fmtPct(m.top1)} on worst day</small></div>
+      <div><b>${fmt1(m.stormDays)}</b>storm days / yr</div>
+      <div><b>${fmtInt(m.policies)}</b>policies · ${fmtPct(m.coverage)} of owner homes</div>
+      <div><b>${fmtCount(m.uncovered)}</b>owner homes without a policy</div>
+      <div><b>${fmtCents(m.lossRatio)}</b>claims per premium $ <small>(est.)</small></div>
+      <div><b>${fmtDollar(m.premium)}</b>avg premium 2025 <small>· ${m.premiumChange == null ? "n/a" : `+${Math.round(m.premiumChange * 100)}%`} since 2019</small></div>
     </div>
-    <div class="c-sec">TDI paid losses by year <span><i style="color:#7fae6c">■</i> wind &amp; hail part</span></div>
+    <div class="c-sec">Claims paid by year <span><i style="color:#e59a83">■</i> wind &amp; hail ${fmtPct(m.windShare)}</span></div>
     <svg class="c-svg" viewBox="0 0 268 72">${bars}<text x="268" y="8" text-anchor="end">max ${fmtMoney(maxP)}</text></svg>
-    <div class="c-sec">Peril mix <span>NOAA, last ${state.window} yrs</span></div>
+    <div class="c-sec">Peril mix <span>NOAA, 2006–2025</span></div>
     <svg class="c-svg" viewBox="0 0 268 38">${stack(m.reports, 2, "Reports")}${stack(m.dmgP, 21, "Damage")}</svg>
     <div class="c-sec">Worst storm days <span>NOAA reports</span></div>
-    <div class="c-days" id="c-days"><div class="c-day" style="--c:#555">Loading reports…</div></div>`;
+    <div class="c-days" id="c-days"><div class="c-day" style="--c:#8a90a8">Loading reports…</div></div>`;
   $("#card .c-close").onclick = () => select(null);
   const ev = await loadEvents(fips);
   if (state.sel !== fips) return;
   $("#c-days").innerHTML = m.topDays.length ? m.topDays.map((d) => {
-    const rows = ev.rows.filter((r) => r[0] === d.date && state.perils.has(r[2]));
-    const dp = d.dp.indexOf(Math.max(...d.dp)), places = [...new Set(rows.map((r) => r[5]).filter(Boolean))].slice(0, 3).join(", ");
-    const mags = PERILS.filter((p) => state.perils.has(p.k)).map((p) => { const rs = rows.filter((r) => r[2] === p.k); return rs.length ? `${rs.length} ${p.name.toLowerCase()}` : ""; }).filter(Boolean).join(" · ");
-    const story = rows.map((r) => r[8]).filter(Boolean).sort((a, b) => b.length - a.length)[0] ?? "";
+    const rs = ev.rows.filter((r) => r[0] === d.date);
+    const dp = d.dp.indexOf(Math.max(...d.dp)), places = [...new Set(rs.map((r) => r[5]).filter(Boolean))].slice(0, 3).join(", ");
+    const mags = PERILS.map((p) => { const n = rs.filter((r) => r[2] === p.k).length; return n ? `${n} ${p.name.toLowerCase()}` : ""; }).filter(Boolean).join(" · ");
+    const story = rs.map((r) => r[8]).filter(Boolean).sort((a, b) => b.length - a.length)[0] ?? "";
     const date = new Date(String(d.date).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3T12:00")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
     return `<div class="c-day" style="--c:${PERILS[dp].c}"><b>${date}</b> · ${fmtMoney(d.d)} · ${mags}${places ? `<br>${places}` : ""}${story ? `<i>“${story}”</i>` : ""}</div>`;
-  }).join("") : `<div class="c-day" style="--c:#555">No damaging storm days in this window.</div>`;
+  }).join("") : `<div class="c-day" style="--c:#8a90a8">No damaging storm days in 2006–2025.</div>`;
 }
 function loadEvents(fips) {
   if (!EVENTS.has(fips)) EVENTS.set(fips, fetch(`data/events/${fips}.json`).then((r) => r.json()));
@@ -507,41 +688,25 @@ function loadEvents(fips) {
 }
 
 // ---------------------------------------------------------------- wiring
-function refresh({ recompute = false, relayout = true } = {}) {
-  if (recompute) { compute(); for (const f of GEO.features) { const m = M.get(+f.id); if (m) m.xy = PROJ(d3.geoCentroid(f)); } }
-  buildScales(); applyStyle(); renderUI();
-  if (relayout) layout(); else buildLabels();
-  if (state.sel) select(state.sel);
-}
 function bind() {
-  $("#tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; state.lens = b.dataset.k; refresh({ relayout: state.mode === "ladder" }); });
-  $("#f-size").addEventListener("change", (e) => { state.size = e.target.value; refresh(); });
-  $("#f-perils").addEventListener("click", (e) => {
-    const b = e.target.closest("button"); if (!b) return; const p = +b.dataset.p;
-    if (state.perils.has(p)) { if (state.perils.size > 1) state.perils.delete(p); } else state.perils.add(p);
-    refresh({ recompute: true });
+  $("#chapters").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) goChapter(+b.dataset.i); });
+  $("#story").addEventListener("click", (e) => { const b = e.target.closest("button[data-go]"); if (b && !b.disabled) goChapter(+b.dataset.go); });
+  $("#insights").addEventListener("click", (e) => { const b = e.target.closest(".ins-row"); if (b) select(+b.dataset.f); });
+  addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { $("#guide").hidden = true; if (state.sel) select(null); }
+    if (e.key === "ArrowRight" && state.chapter < STORY.length - 1) goChapter(state.chapter + 1);
+    if (e.key === "ArrowLeft" && state.chapter > 0) goChapter(state.chapter - 1);
   });
-  $("#f-window").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; state.window = +b.dataset.v; refresh({ recompute: true }); });
-  $("#f-pattern").addEventListener("change", (e) => { state.pattern = e.target.value; applyStyle(); });
-  document.querySelectorAll("#mode button").forEach((b) => b.addEventListener("click", () => { if (state.mode === b.dataset.mode) return; state.mode = b.dataset.mode; renderUI(); layout(); moveCamera(); }));
-  $("#county-list").innerHTML = [...M.values()].sort((a, b) => a.name.localeCompare(b.name)).map((m) => `<option value="${m.name}"></option>`).join("");
-  $("#search").addEventListener("change", (e) => { const m = [...M.values()].find((x) => x.name.toLowerCase() === e.target.value.trim().toLowerCase()); if (m) { e.target.value = ""; select(m.fips); } });
-  addEventListener("keydown", (e) => { if (e.key === "Escape") { $("#guide").hidden = true; if (state.sel) select(null); } });
   const resize = () => { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); };
   addEventListener("resize", resize); resize();
 }
-
-// intro and guide work before the data arrives
-{
-  const close = () => { $("#splash").classList.add("gone"); setTimeout(() => ($("#splash").hidden = true), 650); };
-  $("#btn-explore").onclick = close;
-  $("#btn-guide").onclick = () => { close(); $("#guide").hidden = false; };
-  $("#btn-help").onclick = () => ($("#guide").hidden = false);
-  $("#guide-close").onclick = () => ($("#guide").hidden = true);
-}
+$("#btn-help").onclick = () => ($("#guide").hidden = false);
+$("#guide-close").onclick = () => ($("#guide").hidden = true);
 
 Promise.all(["storm_days", "tdi", "cpi", "tx.topo", "context"].map((f) => fetch(`data/${f}.json`).then((r) => r.json()))).then(([sd, tdi, cpi, topo, ctx]) => {
   SD = sd; NAMES = sd.names; TDIDATA = tdi; CPI = cpi; TOPO = topo; CTX = ctx.counties;
-  compute(); initMap(); buildScales(); applyStyle(); renderUI(); layout(); bind();
+  compute(); initMap(); bind();
+  document.querySelectorAll(".g-ico").forEach((s) => (s.innerHTML = icon(+s.dataset.shape, PERILS[+s.dataset.shape].c)));
+  goChapter(0);
   requestAnimationFrame(frame);
 });
