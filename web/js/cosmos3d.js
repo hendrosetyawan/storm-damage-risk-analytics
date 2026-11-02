@@ -5,7 +5,8 @@
  *            policy paper for insured homes, rose sheets for owner homes without a policy (two-part stacks compare two
  *            amounts in one column)
  *   colour = the measure of the chapter, always named in the legend
- * Each chapter names one high-contrast pair of counties. Clicking a county opens its insurance card. */
+ * Each chapter names one high-contrast pair of counties. The site opens on the story; Explore (after the last chapter, or
+ * the toggle in the top bar) gives free choice of colour, layout and stacks. Clicking a county opens its insurance card. */
 import * as THREE from "three";
 import { OrbitControls } from "../vendor/three/OrbitControls.js";
 
@@ -23,12 +24,13 @@ const fmt1 = (v) => (v == null || isNaN(v) ? "n/a" : v >= 10 ? v.toFixed(0) : v.
 const fmtGap = (v) => (v == null || isNaN(v) ? "n/a" : `${v >= 0 ? "+" : "−"}${Math.round(Math.abs(v) * 100)} pts`);
 const fmtCents = (v) => (v == null || isNaN(v) ? "n/a" : `${Math.round(v * 100)}¢`);
 const LENSES = {
-  peril: { long: "Storm behind most of the county's property damage", type: "peril" },
-  top1: { long: "Share of 20 years of damage that fell on the single worst day", fmt: fmtPct, type: "seq", ramp: ["#2c7bb6", "#7fb3d5", "#f2c14e", "#e8642c", "#c81d4b"], domain: [0.2, 1] },
-  coverage: { long: "Share of owner-occupied homes with a homeowners policy, 2025", fmt: fmtPct, type: "seq", ramp: ["#e8642c", "#e0a526", "#9cc5a1", "#2fa58f", "#1f5f99"] },
-  lossRatio: { long: "Claims paid per premium dollar, 2019–2025 (premium estimated)", fmt: (v) => fmtCents(v), type: "div", domain: [0.15, null, 1], ramp: ["#1a9850", "#f2c14e", "#c81d4b"] },
-  claimGap: { long: "Claim rank minus storm rank (positive = more claims than storms suggest)", fmt: (v) => fmtGap(v), type: "div", domain: [-0.6, 0, 0.6], ramp: ["#2c7bb6", "#d9cfe3", "#c81d4b"] },
-  category: { long: "Where an insurer should look", type: "cat" },
+  peril: { tab: "Main storm", long: "Storm behind most of the county's property damage", type: "peril" },
+  top1: { tab: "One-day share", long: "Share of 20 years of damage that fell on the single worst day", fmt: fmtPct, type: "seq", ramp: ["#2c7bb6", "#7fb3d5", "#f2c14e", "#e8642c", "#c81d4b"], domain: [0.2, 1] },
+  coverage: { tab: "Coverage", long: "Share of owner-occupied homes with a homeowners policy, 2025", fmt: fmtPct, type: "seq", ramp: ["#e8642c", "#e0a526", "#9cc5a1", "#2fa58f", "#1f5f99"] },
+  lossPerPolicy: { tab: "Paid per policy", long: "Claims paid per policy per year, 2019–2025", fmt: fmtDollar, type: "seq", ramp: ["#2c7bb6", "#2fa58f", "#e0a526", "#e8642c", "#c81d4b"] },
+  lossRatio: { tab: "Claims vs premium", long: "Claims paid per premium dollar, 2019–2025 (premium estimated)", fmt: (v) => fmtCents(v), type: "div", domain: [0.15, null, 1], ramp: ["#1a9850", "#f2c14e", "#c81d4b"] },
+  claimGap: { tab: "Claims vs storms", long: "Claim rank minus storm rank (positive = more claims than storms suggest)", fmt: (v) => fmtGap(v), type: "div", domain: [-0.6, 0, 0.6], ramp: ["#2c7bb6", "#d9cfe3", "#c81d4b"] },
+  category: { tab: "Insurer view", long: "Where an insurer should look", type: "cat" },
 };
 const CATS = {
   growth: { name: "Grow", c: "#1f9e89", note: "many owner homes without a policy and claims below the Texas average (3,000+ uncovered homes)" },
@@ -54,7 +56,20 @@ const SIZE_FACTOR = { map: 1, burst: 0.6, mismatch: 0.42 };
 const WIND_TILT = { map: 0.6, burst: 0.6, mismatch: 1.3 };   // wind spirals lean toward the camera
 const STORY_DX = { map: 9, burst: 5, mismatch: 2 };          // nudge the scene right of the story card
 
-const state = { chapter: 0, mode: "map", lens: "peril", size: "stormDays", stack: [], focus: null, special: null, pair: [], sel: null, hover: null };
+// Explore: free choice of colour, layout and stacks, using the same scene
+const EXPLORE = {
+  tabs: ["peril", "top1", "coverage", "lossPerPolicy", "lossRatio", "claimGap", "category"],
+  stacks: {
+    none: { label: "None", parts: [] },
+    damage: { label: "Property damage", parts: [{ key: "damage", kind: "damage" }] },
+    homes: { label: "Insured vs uninsured homes", parts: [{ key: "insured", kind: "policy" }, { key: "uncovered", kind: "uncovered" }] },
+    premium: { label: "Claims vs premium kept", parts: [{ key: "paidPerYear", kind: "claims" }, { key: "keptPos", kind: "money" }] },
+  },
+  sizes: { stormDays: "Storm days a year", policies: "Homeowners policies" },
+  notes: { map: "Counties where they are.", burst: "Grouped by whether one big day or many smaller days caused the damage.", mismatch: "Storm rank left to right, claim rank bottom to top. Dashed line: claims match storms." },
+};
+const ex = { lens: "category", mode: "map", stack: "none", size: "policies" };
+const state = { view: "story", chapter: 0, mode: "map", lens: "peril", size: "stormDays", stack: [], focus: null, special: null, pair: [], sel: null, hover: null };
 let SD, TDIDATA, CPI, CTX, TOPO, NAMES, M = new Map(), TX = {}, colorOf, sizeOf, lensScale, bundle = 1;
 const BUNDLE_H = 1.1, STORM_ON_STACK = 0.85;   // world height of one bundle; storm size when it sits on a stack
 const EVENTS = new Map();
@@ -379,11 +394,11 @@ function applyStyle() {
   }
 }
 
-// camera + layout tween; the story card on the left needs the scene nudged right and pulled back a little
+// camera + layout tween; in the story the card on the left needs the scene nudged right and pulled back a little
 const tween = { t0: -1e9, dur: 1200, cam0: null, cam1: null };
 function moveCamera() {
-  const [p, t] = CAMERA[state.mode].map((v) => new THREE.Vector3(...v)), dx = STORY_DX[state.mode];
-  t.x -= dx; p.x -= dx; p.sub(t).multiplyScalar(1.1).add(t);
+  const story = state.view === "story", [p, t] = CAMERA[state.mode].map((v) => new THREE.Vector3(...v)), dx = story ? STORY_DX[state.mode] : 0;
+  t.x -= dx; p.x -= dx; p.sub(t).multiplyScalar(story ? 1.1 : 1.04).add(t);
   tween.cam0 = [camera.position.clone(), controls.target.clone()];
   tween.cam1 = [p, t];
   tween.t0 = performance.now();
@@ -489,12 +504,21 @@ canvas.addEventListener("pointerup", (e) => {
 });
 
 function showTip(e, m) {
-  const tip = $("#tip"), ch = STORY[state.chapter];
+  const tip = $("#tip");
   const drive = m.dom >= 0 ? `${PERILS[m.dom].long}${m.domShare != null ? ` · ${fmtPct(m.domShare)} of damage` : ""}` : "no storm damage";
-  tip.innerHTML = `<b>${m.name}</b> <small>County</small><br><span class="sw" style="background:${colorOf(m)}"></span>${ch.tip(m)}<br>Main peril: ${drive}${m.coast ? `<br><small>Coastal: most wind claims go to TWIA, not in this data</small>` : ""}`;
+  tip.innerHTML = `<b>${m.name}</b> <small>County</small><br><span class="sw" style="background:${colorOf(m)}"></span>${state.view === "story" ? STORY[state.chapter].tip(m) : exploreTip(m)}<br>Main peril: ${drive}${m.coast ? `<br><small>Coastal: most wind claims go to TWIA, not in this data</small>` : ""}`;
   tip.hidden = false;
   tip.style.left = `${Math.min(e.clientX + 16, innerWidth - tip.offsetWidth - 10)}px`;
   tip.style.top = `${Math.min(e.clientY + 16, innerHeight - tip.offsetHeight - 10)}px`;
+}
+
+function exploreTip(m) {
+  const L = LENSES[state.lens], out = [];
+  if (L.type === "cat") out.push(m.cat ? CATS[m.cat].name : OTHER.name);
+  else if (L.type !== "peril") out.push(`${L.tab}: <b>${L.fmt(m[state.lens])}</b>`);
+  for (const p of state.stack) out.push(`${PAPER_KIND[p.kind].label}: ${p.kind === "policy" || p.kind === "uncovered" ? fmtCount(m[p.key]) : fmtMoney(m[p.key])}`);
+  if (!state.stack.length) out.push(`${EXPLORE.sizes[state.size]}: ${state.size === "stormDays" ? fmt1(m.stormDays) : fmtCount(m.policies)}`);
+  return out.join("<br>");
 }
 
 // ---------------------------------------------------------------- 2D icons for legends and the card
@@ -593,16 +617,40 @@ function renderStory() {
     <div class="st-stat"><b>${v}</b><span>${lab}</span></div>${ch.contrast()}<p>${ch.text()}</p><div class="st-read">${ch.read}</div>
     <div class="st-nav"><button class="ghost" data-go="${i - 1}" ${i === 0 ? "disabled" : ""}>← Back</button>
       <div class="st-dots">${STORY.map((_, j) => `<i class="${j === i ? "on" : ""}"></i>`).join("")}</div>
-      <button data-go="${i + 1}" ${i === STORY.length - 1 ? "disabled" : ""}>Next →</button></div>`;
+      ${i < STORY.length - 1 ? `<button data-go="${i + 1}">Next →</button>` : `<button data-go="explore">Explore →</button>`}</div>`;
   $("#insights").innerHTML = `<h3>COUNTIES TO KNOW</h3>` + ch.list().map((g) => `<div class="ins-group"><div class="ins-title">${g.color ? `<i style="background:${g.color}"></i>` : ""}${g.title}<span>${g.sub}</span></div>` +
     g.rows.map((r, k) => `<button class="ins-row" data-f="${r.m.fips}"><em>${k + 1}</em><span>${r.m.name}</span><b>${r.value}</b><u style="width:${Math.max(4, r.bar * 100)}%;background:${g.color ?? colorOf(r.m)}"></u></button>`).join("") + `</div>`).join("");
 }
 function goChapter(i) {
   const ch = STORY[i];
-  Object.assign(state, { chapter: i, mode: ch.mode, lens: ch.lens, size: ch.size, stack: ch.stack ?? [], special: ch.special ?? null, sel: null });
+  Object.assign(state, { view: "story", chapter: i, mode: ch.mode, lens: ch.lens, size: ch.size, stack: ch.stack ?? [], special: ch.special ?? null, sel: null });
   state.focus = ch.focus ? ch.focus() : null;
   P = ch.pair(); state.pair = P.map((m) => m.fips);
-  buildScales(); applyStyle(); renderStory(); renderLegend(); renderPanels(); layout(); moveCamera();
+  buildScales(); applyStyle(); renderChrome(); renderLegend(); layout(); moveCamera();
+}
+function startExplore() { state.view = "explore"; applyExplore(); moveCamera(); }
+function applyExplore() {
+  const coastal = ex.lens === "lossRatio" || ex.stack === "premium";
+  Object.assign(state, { mode: ex.mode, lens: ex.lens, size: ex.size, stack: EXPLORE.stacks[ex.stack].parts, special: coastal ? (m) => (m.coast ? COASTAL : null) : null, focus: null, sel: null });
+  P = []; state.pair = [];
+  buildScales(); applyStyle(); renderChrome(); renderLegend(); layout();
+}
+// top bar, side panels and explore controls for the current view
+function renderChrome() {
+  const story = state.view === "story";
+  document.body.classList.toggle("is-story", story);
+  document.querySelectorAll("#view-toggle button").forEach((b) => b.classList.toggle("on", b.dataset.v === state.view));
+  if (story) renderStory();
+  else {
+    $("#tabs").innerHTML = EXPLORE.tabs.map((k) => `<button data-k="${k}" class="${k === ex.lens ? "on" : ""}" title="${LENSES[k].long}">${LENSES[k].tab}</button>`).join("");
+    document.querySelectorAll("#mode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === ex.mode));
+    $("#mode-note").textContent = EXPLORE.notes[ex.mode];
+    $("#f-stack").innerHTML = Object.entries(EXPLORE.stacks).map(([k, s]) => `<label><input type="radio" name="st" value="${k}" ${k === ex.stack ? "checked" : ""}/>${s.label}</label>`).join("");
+    $("#f-size").innerHTML = Object.entries(EXPLORE.sizes).map(([k, l]) => `<label class="${ex.stack !== "none" ? "muted" : ""}"><input type="radio" name="sz" value="${k}" ${k === ex.size ? "checked" : ""}/>${l}</label>`).join("");
+    $("#kpis").innerHTML = `<div><b>${fmtInt(TX.reports)}</b>storm reports 2006–2025</div><div><b>${fmtMoney(TX.damageYr)}</b>property damage a year</div>
+      <div><b>${fmtPct(TX.coverage)}</b>of owner homes insured</div><div><b>${fmtCents(TX.lossRatio)}</b>claims per premium dollar</div>`;
+  }
+  renderPanels();
 }
 
 // ---------------------------------------------------------------- legend: shapes, stack, colour (every colour named)
@@ -630,7 +678,8 @@ function renderLegend() {
 }
 function renderPanels() {
   $("#card").hidden = !state.sel;
-  $("#insights").hidden = !!state.sel;
+  $("#insights").hidden = !!state.sel || state.view !== "story";
+  $("#controls").hidden = !!state.sel || state.view !== "explore";
 }
 
 // ---------------------------------------------------------------- county card
@@ -690,11 +739,19 @@ function loadEvents(fips) {
 // ---------------------------------------------------------------- wiring
 function bind() {
   $("#chapters").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) goChapter(+b.dataset.i); });
-  $("#story").addEventListener("click", (e) => { const b = e.target.closest("button[data-go]"); if (b && !b.disabled) goChapter(+b.dataset.go); });
+  $("#story").addEventListener("click", (e) => { const b = e.target.closest("button[data-go]"); if (!b || b.disabled) return; b.dataset.go === "explore" ? startExplore() : goChapter(+b.dataset.go); });
+  $("#view-toggle").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b || b.dataset.v === state.view) return; b.dataset.v === "story" ? goChapter(state.chapter) : startExplore(); });
+  $("#tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; ex.lens = b.dataset.k; applyExplore(); });
+  document.querySelectorAll("#mode button").forEach((b) => b.addEventListener("click", () => { if (ex.mode === b.dataset.mode) return; ex.mode = b.dataset.mode; applyExplore(); moveCamera(); }));
+  $("#f-stack").addEventListener("change", (e) => { ex.stack = e.target.value; applyExplore(); });
+  $("#f-size").addEventListener("change", (e) => { ex.size = e.target.value; applyExplore(); });
+  $("#county-list").innerHTML = [...M.values()].sort((a, b) => a.name.localeCompare(b.name)).map((m) => `<option value="${m.name}"></option>`).join("");
+  $("#search").addEventListener("change", (e) => { const m = [...M.values()].find((x) => x.name.toLowerCase() === e.target.value.trim().toLowerCase()); if (m) { e.target.value = ""; select(m.fips); } });
   $("#insights").addEventListener("click", (e) => { const b = e.target.closest(".ins-row"); if (b) select(+b.dataset.f); });
   addEventListener("keydown", (e) => {
     if (e.key === "Escape") { $("#guide").hidden = true; if (state.sel) select(null); }
-    if (e.key === "ArrowRight" && state.chapter < STORY.length - 1) goChapter(state.chapter + 1);
+    if (state.view !== "story" || e.target.matches("input")) return;
+    if (e.key === "ArrowRight") state.chapter < STORY.length - 1 ? goChapter(state.chapter + 1) : startExplore();
     if (e.key === "ArrowLeft" && state.chapter > 0) goChapter(state.chapter - 1);
   });
   const resize = () => { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); };

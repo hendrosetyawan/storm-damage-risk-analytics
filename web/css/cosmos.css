@@ -200,3 +200,6 @@ aside h3 { margin: 14px 0 8px; font-size: 13px; letter-spacing: 0.18em; color: v
 #shape-legend .lg-row { flex-direction: row; }
 #ramp { left: 58%; width: min(470px, 34vw); }
 .lab3d.axis { text-align: right; line-height: 1.2; }
+.radios label.muted { opacity: 0.45; }
+aside h3 small { font-size: 10px; letter-spacing: 0; color: var(--dim); font-weight: 500; }
+#mode button span { text-align: center; max-width: 100px; }
