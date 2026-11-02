@@ -6,6 +6,13 @@ CSCE 679 Data Visualization · Team 8: Aadi Mahajan, Abhinav Sheshadri, Hendro S
 
 ![Dashboard](docs/dashboard.png)
 
+## Two views
+
+* **`index.html` · Storm Risk Cosmos (3D)**: an insurance-focused 3D overview. Every county is a glowing storm: its **shape** is the peril that drives its NOAA damage (hail stones, thunderstorm-wind spiral, tornado funnel), dollar amounts (NOAA damage per year or TDI paid losses per year) are a **stack of paper money** under the storm, taller for more dollars with each strapped bundle worth the same amount (homeowners policies are shown by storm size instead), and its **colour** is the insurance lens chosen in the top tabs (paid loss per policy, wind & hail share of losses, average premium 2025, premium rise 2019→2025, storm damage per home, catastrophe share). Three layouts of the same objects: **Map** (where counties are), **Pattern** (recurring vs. catastrophic groups, split at the Texas medians) and **Ladder** (ranked on the colour measure, one column per driving peril). Click a county for its insurance card: TDI losses by year, peril mix and its worst storm days with the NWS narratives.
+* **`analysis.html` · 2D analysis**: the full five-view dashboard described below.
+
+![3D view](docs/cosmos3d.png)
+
 ## Five requirements
 
 | | Requirement | Question | View |
@@ -34,7 +41,7 @@ A **storm day** is all hail, thunderstorm-wind and tornado reports in one county
 python3 -m http.server 8000 --directory web
 ```
 
-Then open http://localhost:8000. D3 and topojson-client are included in `web/vendor/`, so no internet connection is needed.
+Then open http://localhost:8000 (3D view) or http://localhost:8000/analysis.html (2D analysis). D3, topojson-client and Three.js are included in `web/vendor/`, so no internet connection is needed.
 
 ## Rebuild the data
 

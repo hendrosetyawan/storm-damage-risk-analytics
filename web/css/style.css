@@ -114,3 +114,4 @@ button { font: inherit; cursor: pointer; }
 .r5-table tr:not(.nar-row) td { border-bottom: 0; padding-bottom: 1px; }
 .notes ul { font-size: 10.5px; } .notes li { margin-bottom: 2px; }
 .r5-table tr:not(.nar-row) td:nth-child(2) { white-space: nowrap; }
+.nav-link { color: #f3d9a4; font-size: 12px; text-decoration: none; margin-left: 14px; white-space: nowrap; } .nav-link:hover { text-decoration: underline; }
