@@ -17,8 +17,6 @@ Outputs:
   events/<fips>.json  every report behind the storm days of one county (loaded on demand by the event view): date,
                    time, peril, magnitude, damage (blank kept blank), place, latitude, longitude, narrative, NOAA event id
   context.json     per county: TDI average premium and coverage (2019 and 2025), ACS housing units and median home value
-  tropical.json    per county: hurricanes, tropical storms and storm surge (NOAA zone reports matched to counties), one row per
-                   storm: date, strongest type, storm name (from the NOAA narrative), damage (blank kept blank), narrative
 
 Usage: python3 scripts/build_data.py --raw /path/to/raw
 """
@@ -129,48 +127,6 @@ def context(raw, by_name):
     return out
 
 
-TROPICAL = {"Hurricane (Typhoon)": "Hurricane", "Hurricane": "Hurricane", "Tropical Storm": "Tropical storm",
-            "Tropical Depression": "Tropical depression", "Storm Surge/Tide": "Storm surge"}
-
-
-def tropical(raw, by_name):
-    """hurricanes, tropical storms and storm surge. NOAA files these by forecast zone, not county: a zone name is the county
-    name with a part added ('Coastal Harris', 'Inland Nueces County', 'Galveston Island'), so the part is stripped. Zone rows of
-    one county in one NOAA episode are one storm: earliest date, the strongest type, damage summed (blank kept apart from zero)"""
-    upper = {k.upper(): v for k, v in by_name.items()}
-    fix = {"DE WITT": "DEWITT", "SAN PATRICO": "SAN PATRICIO", "GALVESTON ISLAND AND BOLIVAR PENINSULA": "GALVESTON", "BOLIVAR PENINSULA": "GALVESTON"}
-    part = re.compile(r"^(COASTAL|INLAND|NORTHERN|SOUTHERN|LOWER|UPPER) | (COUNTY )?(ISLANDS?)$| COUNTY$")
-    rank = ["Hurricane", "Tropical storm", "Storm surge", "Tropical depression"]
-    named = re.compile(r"\b(?:Hurricane|Tropical Storm|Tropical Depression|Post-Tropical Cyclone|Potential Tropical Cyclone)\s+([A-Z][a-z]+)\b")
-    storms, skipped = {}, set()
-    for year in YEARS:
-        path = sorted(glob.glob(f"{raw}/noaa_details/StormEvents_details-ftp_v1.0_d{year}_c*.csv.gz"))[-1]
-        with gzip.open(path, "rt", encoding="latin-1") as f:
-            for r in csv.DictReader(f):
-                if r["STATE_FIPS"] != "48" or r["EVENT_TYPE"] not in TROPICAL: continue
-                z = fix.get(r["CZ_NAME"], r["CZ_NAME"])
-                z = fix.get(part.sub("", part.sub("", z)), part.sub("", part.sub("", z)))
-                fips = upper.get(z)
-                if not fips: skipped.add(r["CZ_NAME"]); continue
-                key = (fips, r["EPISODE_ID"])
-                s = storms.setdefault(key, {"date": 99999999, "type": "Tropical depression", "damage": None, "name": None, "zones": set(), "text": ""})
-                s["date"] = min(s["date"], int(r["BEGIN_YEARMONTH"]) * 100 + int(r["BEGIN_DAY"]))
-                t = TROPICAL[r["EVENT_TYPE"]]
-                if rank.index(t) < rank.index(s["type"]): s["type"] = t
-                d = money(r["DAMAGE_PROPERTY"])
-                if d is not None: s["damage"] = (s["damage"] or 0) + d
-                s["zones"].add(r["CZ_NAME"].title())
-                m = named.search(r["EPISODE_NARRATIVE"]) or named.search(r["EVENT_NARRATIVE"])
-                if m and not s["name"]: s["name"] = m.group(1)
-                txt = " ".join(r["EVENT_NARRATIVE"].split())
-                if len(txt) > len(s["text"]): s["text"] = txt
-    out = defaultdict(list)
-    for (fips, _), s in sorted(storms.items(), key=lambda kv: kv[1]["date"]):
-        out[str(fips)].append([s["date"], s["type"], s["name"], None if s["damage"] is None else round(s["damage"]),
-                               s["text"][:240] + ("…" if len(s["text"]) > 240 else "")])
-    return out, skipped
-
-
 def texas_topology(raw):
     topo = json.loads(Path(f"{raw}/counties-10m.json").read_text())
     geoms = [g for g in topo["objects"]["counties"]["geometries"] if str(g["id"]).startswith("48")]
@@ -184,16 +140,10 @@ def texas_topology(raw):
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(); ap.add_argument("--raw", required=True)
-    ap.add_argument("--only", choices=["tropical"], help="rebuild one file only"); a = ap.parse_args()
+    ap = argparse.ArgumentParser(); ap.add_argument("--raw", required=True); a = ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     topo = texas_topology(a.raw)
     names = {int(g["id"]): g["properties"]["name"] for g in topo["objects"]["counties"]["geometries"]}
-    trop, skipped = tropical(a.raw, {v: k for k, v in names.items()})
-    (OUT / "tropical.json").write_text(json.dumps({"columns": ["date", "type", "name", "damage", "narrative"], "counties": trop},
-                                                  separators=(",", ":"), ensure_ascii=False))
-    print(sum(len(v) for v in trop.values()), "tropical storms in", len(trop), "counties; zones not matched:", sorted(skipped) or "none")
-    if a.only: raise SystemExit
     sd, events = storm_days(a.raw)
     t = tdi(a.raw)
     by_name = {v: k for k, v in names.items()}

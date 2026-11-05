@@ -7,13 +7,11 @@
  *   colour = the measure of the chapter, always named in the legend
  * Each chapter names one high-contrast pair of counties. The site opens on the story; Explore (after the last chapter, or
  * the toggle in the top bar) gives free choice of colour, layout and stacks. Clicking a county opens the county view: the county on its
- * own with its four perils (hurricanes added from NOAA zone reports), its homes as houses and its money as paper stacks. */
+ * own with its three perils (hail, thunderstorm wind, tornado), its homes as houses and its money as paper stacks. */
 import * as THREE from "three";
 import { OrbitControls } from "../vendor/three/OrbitControls.js";
 
 const PERILS = [{ k: 0, name: "Hail", long: "Hail", c: "#5b8fc9" }, { k: 1, name: "Wind", long: "Thunderstorm wind", c: "#d9a441" }, { k: 2, name: "Tornado", long: "Tornado", c: "#8e6bb5" }];
-// hurricanes come from NOAA zone reports and appear only in the county view (the Texas map ranks hail, wind and tornado)
-const HURR = { k: 3, name: "Hurricane", long: "Hurricane & tropical storm", c: "#14a39a" };
 const WINDOW = 20, LAST_YEAR = 2025;
 // TWIA first-tier coastal counties: most wind claims there go to the Texas Windstorm Insurance Association, not in TDI data
 const COAST = new Set([48007, 48039, 48057, 48061, 48071, 48167, 48245, 48261, 48273, 48321, 48355, 48391, 48409, 48489]);
@@ -73,7 +71,7 @@ const EXPLORE = {
 };
 const ex = { lens: "category", mode: "map", stack: "none", size: "policies" };
 const state = { county: null, view: "story", chapter: 0, mode: "map", lens: "peril", size: "stormDays", stack: [], focus: null, special: null, pair: [], sel: null, hover: null };
-let SD, TDIDATA, CPI, CTX, TOPO, TROP, NAMES, M = new Map(), TX = {}, colorOf, sizeOf, lensScale, bundle = 1;
+let SD, TDIDATA, CPI, CTX, TOPO, NAMES, M = new Map(), TX = {}, colorOf, sizeOf, lensScale, bundle = 1;
 const BUNDLE_H = 1.1, STORM_ON_STACK = 0.85;   // world height of one bundle; storm size when it sits on a stack
 const EVENTS = new Map();
 const $ = (s) => document.querySelector(s);
@@ -114,11 +112,9 @@ function compute() {
     });
     const last = tdi.length ? tdi[tdi.length - 1] : null, policies = last?.pol ?? null, owners = cx.owners ?? null;
     const top1 = total > 0 ? days[0].d / total : null;
-    const trop = (TROP[f] ?? []).filter((t) => Math.floor(t[0] / 10000) >= w0)
-      .map(([date, type, name, dm, text]) => ({ date, type, name, d: dm == null ? null : dm * CPI.toBase[Math.floor(date / 10000)], text }));
     M.set(fips, {
       fips, name: NAMES[f], coast: COAST.has(fips), dmgP, reports, nReports: d3.sum(reports), stormDays: stormDays / WINDOW,
-      pDays, pWorst, trop, tropDamage: d3.sum(trop, (t) => t.d ?? 0) / WINDOW,
+      pDays, pWorst,
       damage: total / WINDOW, nDmgDays: days.length, top1, topDays: days.slice(0, 3), dom, domShare: total > 0 ? dmgP[dom] / total : null,
       burst: days.length < 3 ? "few" : top1 >= 0.5 ? "oneday" : "spread",
       tdi, paidPerYear: yrs ? paid / yrs : null, lossPerPolicy: pol ? paid / pol : null, windShare: paid > 0 ? wind / paid : null,
@@ -289,19 +285,10 @@ const TEMPLATES = (() => {
   }
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.11, 8, 32)); ring.rotation.x = Math.PI / 2; ring.position.y = 1; funnel.add(ring);
   tornado.add(funnel);
-  // hurricane: three thick cloud bands around an eyewall over a soft cloud disc (thicker and fewer arms than the wind spiral)
-  const hurricane = new THREE.Group(), cyclone = new THREE.Group();
-  for (let a = 0; a < 3; a++) {
-    const pts = d3.range(0, 51).map((i) => { const t = i / 50, th = -(t * 1.7 * Math.PI + (a * 2 * Math.PI) / 3), r = 0.34 + 0.72 * t; return new THREE.Vector3(r * Math.cos(th), 0.1 * Math.sin(t * Math.PI), r * Math.sin(th)); });
-    cyclone.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 60, 0.15, 8, false)));
-  }
-  const eye = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.12, 10, 32)); eye.rotation.x = Math.PI / 2; cyclone.add(eye);
-  const cloud = new THREE.Mesh(new THREE.CylinderGeometry(1.08, 1.08, 0.06, 48)); cloud.userData.soft = true; cyclone.add(cloud);
-  hurricane.add(cyclone); hurricane.rotation.x = 0.75;
   const none = new THREE.Group(); none.add(new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 10)));
-  return { 0: hail, 1: wind, 2: tornado, 3: hurricane, [-1]: none };
+  return { 0: hail, 1: wind, 2: tornado, [-1]: none };
 })();
-const SPIN = { 0: 0.25, 1: 0.9, 2: 1.8, 3: -0.7, [-1]: 0 };
+const SPIN = { 0: 0.25, 1: 0.9, 2: 1.8, [-1]: 0 };
 const hitGeo = new THREE.SphereGeometry(1.15, 10, 8), hitMat = new THREE.MeshBasicMaterial({ visible: false });
 
 const world = new THREE.Group(); scene.add(world);
@@ -548,7 +535,6 @@ function icon(k, color) {
     return `<path d="${arms}" fill="none" stroke="${color}" stroke-width="4" stroke-linecap="round"/><circle cx="30" cy="30" r="3.5" fill="${color}"/>`;
   }
   if (k === 2) return `<path d="M8 10 Q30 2 52 10 Q44 22 37 32 Q32 42 30 55 Q27 42 23 32 Q16 22 8 10Z" fill="${color}" fill-opacity=".55" stroke="${color}" stroke-width="2"/><path d="M14 14 Q30 20 46 13 M20 25 Q31 29 41 24 M25 36 Q31 38 36 35" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="2"/>`;
-  if (k === 3) return `<circle cx="30" cy="30" r="7" fill="none" stroke="${color}" stroke-width="5"/><path d="M23 30 C23 17 31 9 45 8 M37 30 C37 43 29 51 15 52" fill="none" stroke="${color}" stroke-width="5.5" stroke-linecap="round"/>`;
   return `<circle cx="30" cy="30" r="9" fill="${color}"/>`;
 }
 const stackSVG = (kind, n) => { const [f, e, s] = PAPER_KIND[kind].c; return `<svg viewBox="0 0 46 ${4 + n * 9}" width="40" height="${(4 + n * 9) * 0.87}">${d3.range(n).map((i) => { const y = 2 + (n - 1 - i) * 9;
@@ -763,16 +749,11 @@ function loadEvents(fips) {
 // as a dot where it happened, one 3D storm per peril floating above (size = damage a year, a line down to where its reports
 // fell), 20 houses for its owner-occupied homes (blue roof = insured, red = no policy) and paper stacks for its money a year.
 const CV_R = 17, SLAB = 1.2, CV_BH = 1, CV_CAM = [[0, 30, 49], [0, 3.2, 3]];
-const ALL_PERILS = [...PERILS, HURR];
 const MON = (d) => new Date(String(d).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3T12:00")).toLocaleDateString("en-US", { month: "short", year: "numeric" });
 let CV = null, NEIGHBORS = null;
 
 function perilStats(m) {
-  const out = PERILS.map((p) => ({ ...p, n: m.pDays[p.k], unit: "storm days", dmgYr: m.dmgP[p.k] / WINDOW, worst: m.pWorst[p.k] }));
-  const w = m.trop.filter((t) => t.d != null).sort((a, b) => b.d - a.d)[0];
-  out.push({ ...HURR, n: m.trop.length, unit: m.trop.length === 1 ? "storm" : "storms", dmgYr: m.tropDamage,
-    worst: w && w.d > 0 ? { date: w.date, d: w.d, name: `${w.type}${w.name ? ` ${w.name}` : ""}` } : null });
-  return out;
+  return PERILS.map((p) => ({ ...p, n: m.pDays[p.k], unit: "storm days", dmgYr: m.dmgP[p.k] / WINDOW, worst: m.pWorst[p.k] }));
 }
 const worstText = (s) => (s.worst ? `worst: ${s.worst.name ? `${s.worst.name}, ` : ""}${MON(s.worst.date)} · ${fmtMoney(s.worst.d)}` : s.n ? "no damage estimate" : "none recorded");
 
@@ -781,7 +762,7 @@ function glyph(k, color, faint) {
   const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.15, flatShading: true, transparent: true, opacity: faint ? 0.3 : 1, emissive: new THREE.Color(color).multiplyScalar(0.22) });
   const soft = new THREE.MeshStandardMaterial({ color, roughness: 0.6, transparent: true, opacity: faint ? 0.12 : 0.35, side: THREE.DoubleSide, depthWrite: false });
   g.traverse((o) => { if (o.isMesh) o.material = o.userData.soft ? soft : mat; });
-  return { g, spin: k === 1 || k === 2 || k === 3 ? g.children[0] : g, mats: [mat, soft] };
+  return { g, spin: k === 1 || k === 2 ? g.children[0] : g, mats: [mat, soft] };
 }
 const HOUSE = (() => {
   const body = new THREE.BoxGeometry(0.8, 0.62, 0.8); body.translate(0, 0.31, 0);
@@ -881,21 +862,21 @@ function buildCounty(m) {
   const stats = perilStats(m), maxD = d3.max(stats, (s) => s.dmgYr) || 1, zb = -CV_R * 0.78 - 3;
   CV.stats = stats; CV.drop = [];
   stats.forEach((s, i) => {
-    const x = (i - 1.5) * 9.2, y = 8, size = s.n ? 1.05 + 2.3 * Math.sqrt(s.dmgYr / maxD) : 0.75;
+    const x = (i - 1) * 13.5, y = 8, size = s.n ? 1.05 + 2.3 * Math.sqrt(s.dmgYr / maxD) : 0.75;
     const { g, spin, mats } = glyph(s.k, s.c, !s.n); CV.own.push(...mats);
     g.position.set(x, y, zb); g.scale.setScalar(0.001); group.add(g); CV.spin.push({ o: spin, k: s.k });
     CV.grow.push({ o: g, s: size, delay: 250 + i * 140 });
     const hit = new THREE.Mesh(hitGeo, hitMat); hit.scale.setScalar(size); hit.position.copy(g.position); group.add(hit);
-    hit.userData.tip = `<b>${s.long}</b><br>${fmtInt(s.n)} ${s.unit}, 2006–2025<br>${fmtMoney(s.dmgYr)} property damage a year<br>${worstText(s)}${s.k === 3 ? "<br><small>NOAA zone reports; flooding from hurricanes is filed as flood and not counted</small>" : ""}`;
+    hit.userData.tip = `<b>${s.long}</b><br>${fmtInt(s.n)} ${s.unit}, 2006–2025<br>${fmtMoney(s.dmgYr)} property damage a year<br>${worstText(s)}`;
     CV.hits.push(hit);
     CV.labels.push({ html: `${s.name}<small>${fmtInt(s.n)} ${s.unit} · ${fmtMoney(s.dmgYr)}/yr</small>`, cls: `cv-peril${s.n ? "" : " off"}`, pos: V(x, y + size + 0.6, zb), color: s.c });
-    // dashed line down to where the storm's reports fell (county centre for hurricanes, filed by zone)
+    // dashed line down to where the storm's reports fell
     const dl = new THREE.Line(own(new THREE.BufferGeometry().setFromPoints([V(x, y - size * 0.9, zb), V(cx, SLAB, cz)])),
       own(new THREE.LineDashedMaterial({ color: s.c, dashSize: 0.6, gapSize: 0.4, transparent: true, opacity: s.n ? 0.95 : 0 })));
     dl.computeLineDistances(); dl.visible = false; group.add(dl); CV.drop.push({ line: dl, k: s.k, top: V(x, y - size * 0.9, zb) });
   });
-  // money a year, in front of the county: storm damage (all four perils) and premium split into claims paid and kept
-  const dmg = m.damage + m.tropDamage, prem = m.premiumYear, paid = m.paidPerYear;
+  // money a year, in front of the county: storm damage and premium split into claims paid and kept
+  const dmg = m.damage, prem = m.premiumYear, paid = m.paidPerYear;
   const topAmt = Math.max(dmg, prem ?? 0, paid ?? 0) || 1, raw = topAmt / 10, p10 = 10 ** Math.floor(Math.log10(raw));
   CV.bundle = [1, 2, 2.5, 5, 10].map((k) => k * p10).find((v) => v >= raw);
   const zf = CV_R * 0.78 + 4.5;
@@ -939,12 +920,12 @@ function renderCountyPanel(m) {
   const house = (c) => `<svg viewBox="0 0 20 20" width="16" height="16"><path d="M3 9 L10 3 L17 9Z" fill="${c}"/><rect x="5" y="9" width="10" height="8" fill="#fff" stroke="${c}" stroke-width="1.2"/></svg>`;
   $("#county").innerHTML = `<button class="cv-back">← Back to Texas</button>
     <div class="st-step">County view · 2006–2025</div><h2>${m.name} County</h2>
-    <div class="cv-sec">The four perils <span>damage a year, 2025 $</span></div>${stats.map(row).join("")}
+    <div class="cv-sec">The three perils <span>damage a year, 2025 $</span></div>${stats.map(row).join("")}
     <div class="cv-sec">Homes <span>20 houses = all owner homes</span></div>
     <div class="cv-legend">${m.coverage == null ? `${house("#9aa0b4")} ${fmtCount(m.owners)} owner homes, no TDI policy data` : `<span>${house("#2c5aa0")} insured <b>${fmtPct(m.coverage)}</b> · ${fmtCount(m.insured)}</span><span>${house("#c81d4b")} no policy <b>${fmtPct(m.uncoveredShare)}</b> · ${fmtCount(m.uncovered)}</span>`}</div>
     <div class="cv-sec">Money a year <span>one bundle ≈ ${fmtMoney(CV.bundle)}</span></div>
-    <div class="cv-legend"><span>${stackSVG("damage", 2)} storm damage <b>${fmtMoney(m.damage + m.tropDamage)}</b></span>${m.premiumYear != null ? `<span>${stackSVG("claims", 2)} claims paid <b>${fmtMoney(m.paidPerYear)}</b></span><span>${stackSVG("money", 2)} premium kept <b>${fmtMoney(Math.max(0, m.premiumYear - m.paidPerYear))}</b></span>` : ""}</div>
-    <p class="cv-note">Dots: every NOAA hail, wind and tornado report, where it happened (bigger = damage reported). Hurricanes, tropical storms and storm surge come from NOAA zone reports matched to the county; hurricane flooding is filed as flood and is not counted. Drag to turn, hover for numbers.</p>`;
+    <div class="cv-legend"><span>${stackSVG("damage", 2)} storm damage <b>${fmtMoney(m.damage)}</b></span>${m.premiumYear != null ? `<span>${stackSVG("claims", 2)} claims paid <b>${fmtMoney(m.paidPerYear)}</b></span><span>${stackSVG("money", 2)} premium kept <b>${fmtMoney(Math.max(0, m.premiumYear - m.paidPerYear))}</b></span>` : ""}</div>
+    <p class="cv-note">Dots: every NOAA hail, wind and tornado report, where it happened (bigger = damage reported). Drag to turn, hover for numbers.</p>`;
   $("#county .cv-back").onclick = () => leaveCounty();
 }
 
@@ -993,8 +974,8 @@ function bind() {
 $("#btn-help").onclick = () => ($("#guide").hidden = false);
 $("#guide-close").onclick = () => ($("#guide").hidden = true);
 
-Promise.all(["storm_days", "tdi", "cpi", "tx.topo", "context", "tropical"].map((f) => fetch(`data/${f}.json`).then((r) => r.json()))).then(([sd, tdi, cpi, topo, ctx, trop]) => {
-  SD = sd; NAMES = sd.names; TDIDATA = tdi; CPI = cpi; TOPO = topo; CTX = ctx.counties; TROP = trop.counties;
+Promise.all(["storm_days", "tdi", "cpi", "tx.topo", "context"].map((f) => fetch(`data/${f}.json`).then((r) => r.json()))).then(([sd, tdi, cpi, topo, ctx]) => {
+  SD = sd; NAMES = sd.names; TDIDATA = tdi; CPI = cpi; TOPO = topo; CTX = ctx.counties;
   compute(); initMap(); bind();
   document.querySelectorAll(".g-ico").forEach((s) => (s.innerHTML = icon(+s.dataset.shape, PERILS[+s.dataset.shape].c)));
   goChapter(0);
