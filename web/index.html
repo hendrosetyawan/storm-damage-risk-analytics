@@ -6,7 +6,7 @@
   <title>Storm Risk Cosmos · Texas</title>
   <meta name="description" content="A 3D story of storms, damage and homeowners insurance across the 254 counties of Texas." />
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="css/cosmos.css?v=2" />
+  <link rel="stylesheet" href="css/cosmos.css?v=3" />
   <script src="vendor/d3.min.js"></script>
   <script src="vendor/topojson-client.min.js"></script>
   <script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js" } }</script>
@@ -29,7 +29,7 @@
         <li><b>Stacks</b> under a storm show amounts: green money for dollars, red bills for claims paid, blue policy paper for insured homes, rose sheets for homes without a policy. Taller = more; every bundle is the same amount.</li>
         <li><b>Colour</b> is named at the bottom of the screen. Each chapter rings and labels two counties that make its point by contrast.</li>
         <li><b>Story</b> walks through seven chapters with Back / Next or the arrow keys; <b>Explore</b> (top right, or after the last chapter) lets you pick any colour, layout and stack.</li>
-        <li>Drag to turn, scroll to zoom, hover for numbers, click a county for its insurance card.</li>
+        <li>Drag to turn, scroll to zoom, hover for numbers. <b>Click a county</b> to open its own 3D view: hail, thunderstorm wind, tornado and hurricane above it, its homes as houses and its money as paper stacks; <b>Back to Texas</b> or Esc returns.</li>
       </ul>
       <button id="guide-close">Got it</button>
     </div>
@@ -57,6 +57,9 @@
   <!-- left: story card -->
   <aside id="story"></aside>
 
+  <!-- left: county view (after clicking a county) -->
+  <aside id="county"></aside>
+
   <!-- right: counties to know / county card -->
   <aside id="panel">
     <div id="insights"></div>
@@ -80,6 +83,6 @@
   <footer id="foot">NOAA Storm Events 2006–2025 (NWS damage estimates, not insured loss) · TDI homeowners losses 2019–2025, excluding TWIA · TDI premiums · ACS 2020–2024 owner-occupied homes · premium estimated as policies × average premium · 2025 dollars (CPI-U)</footer>
   <div id="tip" hidden></div>
 
-  <script type="module" src="js/cosmos3d.js?v=2"></script>
+  <script type="module" src="js/cosmos3d.js?v=3"></script>
 </body>
 </html>
