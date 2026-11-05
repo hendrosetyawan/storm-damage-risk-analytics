@@ -230,3 +230,26 @@ body.in-county #story, body.in-county #chapters, body.in-county #tabs, body.in-c
 .lab3d.cv-peril.off { opacity: 0.5; }
 .lab3d.cv-stack, .lab3d.cv-homes { font-size: 12.5px; font-weight: 700; text-align: center; background: rgba(255, 255, 255, 0.85); padding: 3px 8px; border-radius: 8px; border: 1px solid var(--line); }
 .lab3d.cv-stack small, .lab3d.cv-homes small { display: block; font-size: 10.5px; font-weight: 500; color: var(--dim); }
+
+/* one day vs many: open a group, sort it */
+.lab3d.group.open { pointer-events: auto; cursor: pointer; padding: 4px 10px; border-radius: 10px; border: 1.5px dashed transparent; }
+.lab3d.group.open:hover { border-color: var(--accent); background: rgba(255, 255, 255, 0.9); }
+.lab3d.rank { font-size: 11px; }
+.lab3d.rank i { font-style: normal; display: inline-block; min-width: 16px; padding: 0 3px; border-radius: 8px; background: var(--accent); color: #fff; font-size: 9.5px; text-align: center; margin-right: 2px; }
+.lab3d.rank small { display: block; text-align: center; font-weight: 500; color: var(--dim); font-size: 9.5px; }
+#mode-note button { display: block; width: 100%; margin: 4px 0 0; border: 1.5px solid var(--line); background: #fff; border-radius: 999px; padding: 4px 6px; font-size: 11px; color: var(--ink); }
+#mode-note button:hover { border-color: var(--accent); color: var(--accent); }
+#mode-note button.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+#mode-note .cl-back { border-color: var(--accent); color: var(--accent); font-weight: 700; margin-bottom: 8px; }
+#mode-note .cl-name { display: block; color: var(--accent); font-size: 12px; margin-bottom: 6px; }
+#mode-note .cl-open, #mode-note .cl-sort { display: block; margin-top: 2px; }
+.lab3d.rank.only { font-size: 0; }
+.lab3d.rank.only i { font-size: 9px; background: rgba(140, 29, 47, 0.7); }
+.lab3d.rank.only.top i { font-size: 11px; background: var(--accent); min-width: 20px; }
+#mode-note .cl-top { display: block; text-align: left; }
+#mode-note .cl-top a { display: grid; grid-template-columns: 18px 1fr auto; gap: 4px; align-items: center; padding: 2px 3px; border-radius: 6px; cursor: pointer; color: var(--ink); font-size: 11px; }
+#mode-note .cl-top a:hover { background: var(--accent-soft); }
+#mode-note .cl-top i { font-style: normal; font-size: 9.5px; font-weight: 700; color: #fff; background: var(--accent); border-radius: 8px; text-align: center; }
+#mode-note .cl-top em { font-style: normal; color: var(--dim); font-size: 10px; }
+#mode-note .cl-name { margin-top: 8px; }
+#mode { width: 150px; }

@@ -69,8 +69,20 @@ const EXPLORE = {
   sizes: { stormDays: "Storm days a year", policies: "Homeowners policies" },
   notes: { map: "Counties where they are.", burst: "Grouped by whether one big day or many smaller days caused the damage.", mismatch: "Storm rank left to right, claim rank bottom to top. Dashed line: claims match storms." },
 };
-const ex = { lens: "category", mode: "map", stack: "none", size: "policies" };
-const state = { county: null, view: "story", chapter: 0, mode: "map", lens: "peril", size: "stormDays", stack: [], focus: null, special: null, pair: [], sel: null, hover: null };
+const ex = { lens: "category", mode: "map", stack: "none", size: "policies", cluster: null, sort: "damage" };
+// one group of the "one day vs many" layout opened on its own, every county in a grid, largest first
+const SORTS = {
+  damage: { label: "Damage a year", val: (m) => m.damage, fmt: fmtMoney },
+  top1: { label: "Share on worst day", val: (m) => m.top1, fmt: fmtPct },
+  stormDays: { label: "Storm days a year", val: (m) => m.stormDays, fmt: fmt1 },
+  policies: { label: "Policies", val: (m) => m.policies, fmt: fmtCount },
+  name: { label: "Name (A–Z)", val: null, fmt: () => "" },
+};
+const sortedCluster = (k, by) => {
+  const ms = [...M.values()].filter((m) => m.burst === k), S = SORTS[by];
+  return S.val ? ms.sort((a, b) => (S.val(b) ?? -Infinity) - (S.val(a) ?? -Infinity) || a.name.localeCompare(b.name)) : ms.sort((a, b) => a.name.localeCompare(b.name));
+};
+const state = { county: null, cluster: null, sort: "damage", grid: null, view: "story", chapter: 0, mode: "map", lens: "peril", size: "stormDays", stack: [], focus: null, special: null, pair: [], sel: null, hover: null };
 let SD, TDIDATA, CPI, CTX, TOPO, NAMES, M = new Map(), TX = {}, colorOf, sizeOf, lensScale, bundle = 1;
 const BUNDLE_H = 1.1, STORM_ON_STACK = 0.85;   // world height of one bundle; storm size when it sits on a stack
 const EVENTS = new Map();
@@ -358,12 +370,26 @@ function layout() {
   const nodes = all.map((m) => { const h = stacked ? [partH(m, 0), partH(m, 1)] : [0, 0]; return { m, h, r: stacked ? STORM_ON_STACK : sizeOf(m) * sf, top: h[0] + h[1] }; });
   if (state.mode === "map") {
     for (const d of nodes) { d.x = d.m.xy[0]; d.z = d.m.xy[1]; }
+  } else if (state.mode === "burst" && state.cluster) {
+    // the opened group: a grid read like text, rank 1 at the back left; the other groups shrink away
+    const ms = sortedCluster(state.cluster, state.sort), rank = new Map(ms.map((m, i) => [m.fips, i]));
+    const inG = nodes.filter((d) => rank.has(d.m.fips)), cell = stacked ? 3 : Math.min(4.6, Math.max(3, d3.max(inG, (d) => d.r) * 2.2));
+    const cols = Math.max(1, Math.min(ms.length, Math.ceil(Math.sqrt(ms.length * 2.4)))), rowsN = Math.ceil(ms.length / cols);
+    const W = (cols - 1) * cell, D = (rowsN - 1) * cell;
+    for (const d of nodes) {
+      const i = rank.get(d.m.fips);
+      if (i == null) { d.r = 0.001; d.h = [0, 0]; d.top = 0; d.x = BURST[d.m.burst].x * 3; d.z = BURST[d.m.burst].z * 3; continue; }
+      d.x = (i % cols) * cell - W / 2; d.z = Math.floor(i / cols) * cell - D / 2;
+    }
+    state.grid = { W, D, cell, n: ms.length };
   } else if (state.mode === "burst") {
     for (const d of nodes) { const g = BURST[d.m.burst]; d.tx = g.x; d.tz = g.z; d.x = g.x + (Math.random() - 0.5); d.y = g.z + (Math.random() - 0.5); }
     const sim = d3.forceSimulation(nodes).force("x", d3.forceX((d) => d.tx).strength(0.08)).force("y", d3.forceY((d) => d.tz).strength(0.08))
       .force("c", d3.forceCollide((d) => (stacked ? 1.05 : d.r * 1.08 + 0.25)).iterations(2)).stop();
     for (let i = 0; i < 280; i++) sim.tick();
     for (const d of nodes) d.z = d.y;
+    // each group's footprint, so a click on the empty ground of a group opens it too
+    state.groupArea = Object.keys(BURST).map((k) => { const g = nodes.filter((d) => d.m.burst === k); return { k, x: d3.mean(g, (d) => d.x), z: d3.mean(g, (d) => d.z), r: d3.max(g, (d) => Math.hypot(d.x - d3.mean(g, (e) => e.x), d.z - d3.mean(g, (e) => e.z))) + 2 }; });
   } else {
     for (const d of nodes) {
       if (d.m.claimGap == null) { d.r = 0.001; d.tx = d.x = 0; d.ty = d.y = -MATCH_H / 2 - 8; continue; }
@@ -402,7 +428,15 @@ function applyStyle() {
 // camera + layout tween; in the story the card on the left needs the scene nudged right and pulled back a little
 const tween = { t0: -1e9, dur: 1200, cam0: null, cam1: null };
 function moveCamera() {
-  const story = state.view === "story", [p, t] = CAMERA[state.mode].map((v) => new THREE.Vector3(...v)), dx = story ? STORY_DX[state.mode] : 0;
+  const story = state.view === "story", dx = story ? STORY_DX[state.mode] : 0;
+  let [p, t] = CAMERA[state.mode].map((v) => new THREE.Vector3(...v));
+  if (state.mode === "burst" && state.cluster && state.grid) {
+    // fit the grid into the free space between the layout column (left) and the controls (right)
+    const G = state.grid, free = Math.max(0.35, (innerWidth - 480) / innerWidth), tanH = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const dW = (G.W / 2 + G.cell) / (tanH * camera.aspect * free), dD = (G.D / 2 + G.cell * 2.2) / (tanH * 0.8), d = Math.max(dW, dD, 24);
+    const perPx = (2 * d * tanH * camera.aspect) / innerWidth, shift = ((320 - 140) / 2) * perPx;   // the right panel is wider than the left column
+    t = new THREE.Vector3(shift, 0, 0.6); p = new THREE.Vector3(0, 0.945, 0.326).multiplyScalar(d).add(t);
+  }
   t.x -= dx; p.x -= dx; p.sub(t).multiplyScalar(story ? 1.1 : 1.04).add(t);
   tween.cam0 = [camera.position.clone(), controls.target.clone()];
   tween.cam1 = [p, t];
@@ -425,11 +459,17 @@ function buildLabels() {
   if (state.mode === "map") {
     const rank = (m) => (state.stack.length ? stackTotal(m) : m[state.size] ?? 0);
     nameAll(all.filter((m) => !state.focus || state.focus.has(m.fips)).sort((a, b) => rank(b) - rank(a)).slice(0, state.focus ? 10 : 6));
+  } else if (state.mode === "burst" && state.cluster) {
+    const g = BURST[state.cluster], S = SORTS[state.sort], ms = sortedCluster(state.cluster, state.sort), G = state.grid;
+    add(`${g.name} · ${ms.length} counties<small>sorted by ${S.label.toLowerCase()}${S.val ? ", largest first" : ""}: read left to right, top to bottom · click a county for its map</small>`, "group", V(0, 0, -G.D / 2 - G.cell * 2));
+    // every county carries its rank (names and values: hover, or the top-five list on the left)
+    ms.forEach((m, i) => { named.add(m.fips); add(`<i>${i + 1}</i>`, `rank only${i < 3 ? " top" : ""}`, null, OBJ.get(m.fips)); });
   } else if (state.mode === "burst") {
     for (const [k, g] of Object.entries(BURST)) {
       const members = all.filter((m) => m.burst === k); if (!members.length) continue;
       const zs = members.map((m) => OBJ.get(m.fips).p1.z);
-      add(`${g.name} · ${members.length}<small>${g.note}</small>`, "group", V(g.x, 0, Math.max(...zs) + 4));
+      const el = add(`${g.name} · ${members.length}<small>${g.note}${state.view === "explore" ? " · click to open" : ""}</small>`, `group${state.view === "explore" ? " open" : ""}`, V(g.x, 0, Math.max(...zs) + 4));
+      el.dataset.cluster = k;
     }
   } else {
     add("More claims than storms suggest", "zone over", V(4, MATCH_H / 2 + 5, 0));
@@ -484,7 +524,7 @@ function frame(now) {
   }
   if (tween.cam1) {
     if (k < 1) { camera.position.lerpVectors(tween.cam0[0], tween.cam1[0], e); controls.target.lerpVectors(tween.cam0[1], tween.cam1[1], e); }
-    else tween.cam1 = null;
+    else { camera.position.copy(tween.cam1[0]); controls.target.copy(tween.cam1[1]); tween.cam1 = null; }   // land exactly, even after a skipped frame
   }
   controls.update();
   if (CV) { animateCounty(now, dt); selRing.visible = pairRings[0].visible = pairRings[1].visible = false; if (pointerEvt) pickCounty(); }
@@ -506,7 +546,13 @@ let down = null;
 canvas.addEventListener("pointerdown", (e) => { down = [e.clientX, e.clientY]; });
 canvas.addEventListener("pointerup", (e) => {
   if (CV || !down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
-  if (state.hover) openCounty(state.hover);
+  if (state.hover) return openCounty(state.hover);
+  if (state.view === "explore" && state.mode === "burst" && !state.cluster && state.groupArea) {
+    raycaster.setFromCamera(pointer, camera);
+    const hitP = raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3());
+    const g = hitP && state.groupArea.find((a) => Math.hypot(hitP.x - a.x, hitP.z - a.z) < a.r);
+    if (g) openCluster(g.k);
+  }
 });
 
 function showTip(e, m) {
@@ -520,6 +566,7 @@ function showTip(e, m) {
 
 function exploreTip(m) {
   const L = LENSES[state.lens], out = [];
+  if (state.mode === "burst" && state.cluster) { const ms = sortedCluster(state.cluster, state.sort); out.push(`<b>#${ms.indexOf(m) + 1}</b> of ${ms.length} · ${BURST[state.cluster].name.toLowerCase()}${SORTS[state.sort].val ? ` · ${SORTS[state.sort].label.toLowerCase()} ${SORTS[state.sort].fmt(SORTS[state.sort].val(m))}` : ""}`); }
   if (L.type === "cat") out.push(m.cat ? CATS[m.cat].name : OTHER.name);
   else if (L.type !== "peril") out.push(`${L.tab}: <b>${L.fmt(m[state.lens])}</b>`);
   for (const p of state.stack) out.push(`${PAPER_KIND[p.kind].label}: ${p.kind === "policy" || p.kind === "uncovered" ? fmtCount(m[p.key]) : fmtMoney(m[p.key])}`);
@@ -630,16 +677,18 @@ function renderStory() {
 function goChapter(i) {
   leaveCounty(true);
   const ch = STORY[i];
-  Object.assign(state, { view: "story", chapter: i, mode: ch.mode, lens: ch.lens, size: ch.size, stack: ch.stack ?? [], special: ch.special ?? null, sel: null });
+  Object.assign(state, { cluster: null, view: "story", chapter: i, mode: ch.mode, lens: ch.lens, size: ch.size, stack: ch.stack ?? [], special: ch.special ?? null, sel: null });
   state.focus = ch.focus ? ch.focus() : null;
   P = ch.pair(); state.pair = P.map((m) => m.fips);
   buildScales(); applyStyle(); renderChrome(); renderLegend(); layout(); moveCamera();
 }
+function openCluster(k) { ex.mode = "burst"; ex.cluster = k; applyExplore(); moveCamera(); }
 function startExplore() { state.view = "explore"; applyExplore(); moveCamera(); }
 function applyExplore() {
   leaveCounty(true);
   const coastal = ex.lens === "lossRatio" || ex.stack === "premium";
-  Object.assign(state, { mode: ex.mode, lens: ex.lens, size: ex.size, stack: EXPLORE.stacks[ex.stack].parts, special: coastal ? (m) => (m.coast ? COASTAL : null) : null, focus: null, sel: null });
+  if (ex.mode !== "burst") ex.cluster = null;
+  Object.assign(state, { cluster: ex.cluster, sort: ex.sort, mode: ex.mode, lens: ex.lens, size: ex.size, stack: EXPLORE.stacks[ex.stack].parts, special: coastal ? (m) => (m.coast ? COASTAL : null) : null, focus: null, sel: null });
   P = []; state.pair = [];
   buildScales(); applyStyle(); renderChrome(); renderLegend(); layout();
 }
@@ -652,7 +701,10 @@ function renderChrome() {
   else {
     $("#tabs").innerHTML = EXPLORE.tabs.map((k) => `<button data-k="${k}" class="${k === ex.lens ? "on" : ""}" title="${LENSES[k].long}">${LENSES[k].tab}</button>`).join("");
     document.querySelectorAll("#mode button").forEach((b) => b.classList.toggle("on", b.dataset.mode === ex.mode));
-    $("#mode-note").textContent = EXPLORE.notes[ex.mode];
+    $("#mode-note").innerHTML = ex.mode !== "burst" ? EXPLORE.notes[ex.mode]
+      : ex.cluster ? `<button class="cl-back" data-cluster="">← All groups</button><b class="cl-name">${BURST[ex.cluster].name}</b>Sort by<span class="cl-sort">${Object.entries(SORTS).map(([k, v]) => `<button data-sort="${k}" class="${k === ex.sort ? "on" : ""}">${v.label}</button>`).join("")}</span>
+        <b class="cl-name">Top 5</b><span class="cl-top">${sortedCluster(ex.cluster, ex.sort).slice(0, 5).map((m, i) => `<a data-f="${m.fips}"><i>${i + 1}</i>${m.name}<em>${SORTS[ex.sort].fmt(SORTS[ex.sort].val?.(m))}</em></a>`).join("")}</span>`
+      : `${EXPLORE.notes.burst} Open a group:<span class="cl-open">${Object.entries(BURST).map(([k, g]) => `<button data-cluster="${k}">${g.name}</button>`).join("")}</span>`;
     $("#f-stack").innerHTML = Object.entries(EXPLORE.stacks).map(([k, s]) => `<label><input type="radio" name="st" value="${k}" ${k === ex.stack ? "checked" : ""}/>${s.label}</label>`).join("");
     $("#f-size").innerHTML = Object.entries(EXPLORE.sizes).map(([k, l]) => `<label class="${ex.stack !== "none" ? "muted" : ""}"><input type="radio" name="sz" value="${k}" ${k === ex.size ? "checked" : ""}/>${l}</label>`).join("");
     $("#kpis").innerHTML = `<div><b>${fmtInt(TX.reports)}</b>storm reports 2006–2025</div><div><b>${fmtMoney(TX.damageYr)}</b>property damage a year</div>
@@ -957,13 +1009,20 @@ function bind() {
   $("#view-toggle").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b || b.dataset.v === state.view) return; b.dataset.v === "story" ? goChapter(state.chapter) : startExplore(); });
   $("#tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; ex.lens = b.dataset.k; applyExplore(); });
   document.querySelectorAll("#mode button").forEach((b) => b.addEventListener("click", () => { if (ex.mode === b.dataset.mode) return; ex.mode = b.dataset.mode; applyExplore(); moveCamera(); }));
+  const clusterClick = (e) => {
+    const f = e.target.closest("a[data-f]"); if (f) return openCounty(+f.dataset.f);
+    const b = e.target.closest("[data-cluster], [data-sort]"); if (!b) return;
+    if (b.dataset.sort) { ex.sort = b.dataset.sort; applyExplore(); moveCamera(); } else openCluster(b.dataset.cluster || null);
+  };
+  $("#mode-note").addEventListener("click", clusterClick);
+  labelBox.addEventListener("click", (e) => { if (state.view === "explore") clusterClick(e); });
   $("#f-stack").addEventListener("change", (e) => { ex.stack = e.target.value; applyExplore(); });
   $("#f-size").addEventListener("change", (e) => { ex.size = e.target.value; applyExplore(); });
   $("#county-list").innerHTML = [...M.values()].sort((a, b) => a.name.localeCompare(b.name)).map((m) => `<option value="${m.name}"></option>`).join("");
   $("#search").addEventListener("change", (e) => { const m = [...M.values()].find((x) => x.name.toLowerCase() === e.target.value.trim().toLowerCase()); if (m) { e.target.value = ""; openCounty(m.fips); } });
   $("#insights").addEventListener("click", (e) => { const b = e.target.closest(".ins-row"); if (b) openCounty(+b.dataset.f); });
   addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { $("#guide").hidden = true; if (CV) leaveCounty(); else if (state.sel) select(null); }
+    if (e.key === "Escape") { $("#guide").hidden = true; if (CV) leaveCounty(); else if (state.sel) select(null); else if (state.cluster) openCluster(null); }
     if (state.view !== "story" || e.target.matches("input")) return;
     if (e.key === "ArrowRight") state.chapter < STORY.length - 1 ? goChapter(state.chapter + 1) : startExplore();
     if (e.key === "ArrowLeft" && state.chapter > 0) goChapter(state.chapter - 1);
