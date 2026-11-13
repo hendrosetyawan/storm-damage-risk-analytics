@@ -961,12 +961,33 @@ function glyph(k, color, faint) {
   g.traverse((o) => { if (o.isMesh) o.material = o.userData.soft ? soft : mat; });
   return { g, spin: k === 1 || k === 2 ? g.children[0] : g, mats: [mat, soft] };
 }
+// a see-through house: walls, a pyramid roof and a door in the roof colour (blue insured, red no policy), framed windows on
+// the front and both sides, and a chimney
 const HOUSE = (() => {
-  const body = new THREE.BoxGeometry(0.8, 0.62, 0.8); body.translate(0, 0.31, 0);
+  const box = (w, h, d, x, y, z) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); return g; };
+  const body = box(0.8, 0.62, 0.8, 0, 0.31, 0);
   const roof = new THREE.ConeGeometry(0.68, 0.55, 4); roof.rotateY(Math.PI / 4); roof.translate(0, 0.9, 0);
-  const m = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7, flatShading: true, transparent: true, opacity: 0.8 });
-  return { body, roof, wall: { ins: m("#ffffff"), unc: m("#fbe9eb"), none: m("#eeeff3") }, top: { ins: m("#2c5aa0"), unc: m("#c81d4b"), none: m("#9aa0b4") } };
+  const door = box(0.19, 0.33, 0.035, 0, 0.165, 0.41);
+  const step = box(0.29, 0.04, 0.1, 0, 0.02, 0.45);
+  const chimney = box(0.12, 0.3, 0.12, 0.2, 1.0, -0.12);
+  // windows: [x, z, rotation] on the front (either side of the door) and in the middle of each side wall
+  const spots = [[-0.24, 0.4, 0], [0.24, 0.4, 0], [0.4, 0, Math.PI / 2], [-0.4, 0, -Math.PI / 2]];
+  const pane = (w, h, d, out) => spots.map(([x, z, r]) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(0, 0, out); g.rotateY(r); g.translate(x, 0.39, z); return g; });
+  const frames = pane(0.2, 0.19, 0.03, 0.012), glass = pane(0.15, 0.14, 0.03, 0.026), bars = pane(0.15, 0.018, 0.035, 0.03);
+  const m = (c, o = 0.8, extra = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7, flatShading: true, transparent: true, opacity: o, ...extra });
+  return {
+    body, roof, door, step, chimney, frames, glass, bars,
+    wall: { ins: m("#ffffff"), unc: m("#fbe9eb"), none: m("#eeeff3") },
+    top: { ins: m("#2c5aa0"), unc: m("#c81d4b"), none: m("#9aa0b4") },
+    pane: { ins: m("#cfe0f6", 0.7, { emissive: new THREE.Color("#fff3c4"), emissiveIntensity: 0.25, roughness: 0.2 }), unc: m("#f6d3d9", 0.7, { emissive: new THREE.Color("#fff3c4"), emissiveIntensity: 0.25, roughness: 0.2 }), none: m("#e3e5ec", 0.7) },
+    trim: m("#ffffff", 0.9), stone: m("#a7adbd", 0.85),
+  };
 })();
+function houseParts(kind) {
+  const M = (g, mt) => new THREE.Mesh(g, mt);
+  return [M(HOUSE.body, HOUSE.wall[kind]), M(HOUSE.roof, HOUSE.top[kind]), M(HOUSE.door, HOUSE.top[kind]), M(HOUSE.step, HOUSE.stone), M(HOUSE.chimney, HOUSE.stone),
+    ...HOUSE.frames.map((g) => M(g, HOUSE.top[kind])), ...HOUSE.glass.map((g) => M(g, HOUSE.pane[kind])), ...HOUSE.bars.map((g) => M(g, HOUSE.trim))];
+}
 
 function cvStack(kind, amount, bundleAmt, x, z, y0 = 0) {
   const h = Math.max(0.15, (amount / bundleAmt) * CV_BH);
@@ -1053,7 +1074,7 @@ function buildCounty(m) {
   for (let i = 0; i < 10; i++) {
     const kind = !known ? "none" : i < nIns ? "ins" : "unc";
     const h = new THREE.Group();
-    h.add(new THREE.Mesh(HOUSE.body, HOUSE.wall[kind]), new THREE.Mesh(HOUSE.roof, HOUSE.top[kind]));
+    h.add(...houseParts(kind));
     h.position.set(cx + (i - 4.5) * gap, SLAB, cz + 1.5); h.scale.setScalar(0.001); group.add(h);
     const tip = !known ? `${fmtCount(m.owners)} owner homes · no TDI policy data` : kind === "ins" ? `Insured: ${fmtCount(m.insured)} of ${fmtCount(m.owners)} owner homes (${fmtPct(m.coverage)})` : `No homeowners policy: ${fmtCount(m.uncovered)} owner homes (${fmtPct(m.uncoveredShare)})`;
     h.children.forEach((c) => { c.userData.tip = `<b>Homes · ${known ? `${nIns} of 10 insured` : "no policy data"}</b><br>${tip}<br><small>one house = 10% of the county's owner-occupied homes</small>`; CV.hits.push(c); });
@@ -1185,7 +1206,7 @@ const monthName = (d) => new Date(d.y, d.mo - 1, 15).toLocaleDateString("en-US",
 
 function renderCountyPanel(m) {
   const stats = perilStats(m), row = (s) => `<div class="cv-row${s.n ? "" : " off"}">${iconSVG(s.k, s.c)}<div><b>${s.long}</b><span>${fmtInt(s.n)} ${s.unit} · ${worstText(s)}</span></div><em>${fmtMoney(s.dmgYr)}<small>/yr</small></em></div>`;
-  const house = (c) => `<svg viewBox="0 0 20 20" width="16" height="16"><path d="M3 9 L10 3 L17 9Z" fill="${c}"/><rect x="5" y="9" width="10" height="8" fill="#fff" stroke="${c}" stroke-width="1.2"/></svg>`;
+  const house = (c) => `<svg viewBox="0 0 20 20" width="16" height="16"><rect x="13" y="3.5" width="2" height="4" fill="#a7adbd"/><path d="M3 9 L10 3 L17 9Z" fill="${c}"/><rect x="5" y="9" width="10" height="8" fill="#fff" fill-opacity=".85" stroke="${c}" stroke-width="1.2"/><rect x="8.8" y="12.2" width="2.4" height="4.8" fill="${c}"/><rect x="6.2" y="10.6" width="1.9" height="1.9" fill="none" stroke="${c}" stroke-width=".7"/><rect x="11.9" y="10.6" width="1.9" height="1.9" fill="none" stroke="${c}" stroke-width=".7"/></svg>`;
   $("#county").innerHTML = `<button class="cv-back">← Back to Texas</button>
     <div class="st-step">County view · 2006–2025</div><h2>${m.name} County</h2>
     <div class="cv-sec">The three perils <span>damage a year, 2025 $</span></div>${stats.map(row).join("")}
