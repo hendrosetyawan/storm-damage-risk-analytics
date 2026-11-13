@@ -70,6 +70,9 @@ const EXPLORE = {
   notes: { map: "Counties where they are.", burst: "Grouped by whether one big day or many smaller days caused the damage.", mismatch: "Storm rank left to right, claim rank bottom to top. Dashed line: claims match storms." },
 };
 const ex = { lens: "category", mode: "map", stack: "none", size: "policies", cluster: null, sort: "damage" };
+// the years timeline in Explore: null = all 20 years; [from, to] = storm days, damage and the dimming count those years only
+const yearSel = { range: null, play: null, lockTop: null };
+const REDUCE = matchMedia("(prefers-reduced-motion: reduce)").matches;
 // one group of the "one day vs many" layout opened on its own, every county in a grid, largest first
 const SORTS = {
   damage: { label: "Damage a year", val: (m) => m.damage, fmt: fmtMoney },
@@ -91,9 +94,11 @@ const $ = (s) => document.querySelector(s);
 // ---------------------------------------------------------------- metrics
 function compute() {
   const w0 = LAST_YEAR - WINDOW + 1;
+  // every year of the window statewide, for the years timeline in Explore
+  const YRS = d3.range(w0, LAST_YEAR + 1).map((year) => ({ year, dmgP: [0, 0, 0], rep: 0, counties: 0 }));
   for (const f of Object.keys(NAMES)) {
     const fips = +f, rows = SD.counties[f] ?? [];
-    const dmgP = [0, 0, 0], reports = [0, 0, 0], days = [], pDays = [0, 0, 0], pWorst = [null, null, null];
+    const dmgP = [0, 0, 0], reports = [0, 0, 0], days = [], pDays = [0, 0, 0], pWorst = [null, null, null], years = {};
     let total = 0, stormDays = 0;
     for (const r of rows) {
       const yr = Math.floor(r[0] / 10000); if (yr < w0) continue;
@@ -106,7 +111,11 @@ function compute() {
       if (!c) continue;
       stormDays++; total += d;
       if (d > 0) days.push({ date: r[0], d, dp });
+      const y = (years[yr] ??= { days: 0, dmg: 0, dmgDays: 0, rep: 0 }), Y = YRS[yr - w0];
+      y.days++; y.dmg += d; y.rep += c; if (d > 0) y.dmgDays++;
+      Y.rep += c; for (const p of [0, 1, 2]) Y.dmgP[p] += dp[p];
     }
+    for (const yr of Object.keys(years)) YRS[yr - w0].counties++;
     days.sort((a, b) => b.d - a.d);
     const argmax = (a) => a.indexOf(Math.max(...a));
     const dom = total > 0 ? argmax(dmgP) : d3.sum(reports) > 0 ? argmax(reports) : -1;
@@ -126,7 +135,7 @@ function compute() {
     const top1 = total > 0 ? days[0].d / total : null;
     M.set(fips, {
       fips, name: NAMES[f], coast: COAST.has(fips), dmgP, reports, nReports: d3.sum(reports), stormDays: stormDays / WINDOW,
-      pDays, pWorst,
+      pDays, pWorst, years,
       damage: total / WINDOW, nDmgDays: days.length, top1, topDays: days.slice(0, 3), dom, domShare: total > 0 ? dmgP[dom] / total : null,
       burst: days.length < 3 ? "few" : top1 >= 0.5 ? "oneday" : "spread",
       tdi, paidPerYear: yrs ? paid / yrs : null, lossPerPolicy: pol ? paid / pol : null, windShare: paid > 0 ? wind / paid : null,
@@ -159,6 +168,7 @@ function compute() {
     policies: S((m) => m.policies ?? 0), owners: S((m) => m.owners ?? 0), insuredValue: S((m) => m.insuredValue ?? 0), uncovered: S((m) => m.uncovered ?? 0),
     lossRatio: d3.sum(withPrem, (m) => m.paidPerYear) / d3.sum(withPrem, (m) => m.premiumYear),
   };
+  TX.years = YRS; for (const Y of YRS) Y.dmg = d3.sum(Y.dmgP);
   TX.coverage = Math.min(1, TX.policies / TX.owners); TX.uncoveredShare = TX.uncovered / TX.owners;
   TX.nGap = all.filter((m) => m.claimGap >= 0.3).length;
   // the insurer's view: one label per county, coast and very small books left out
@@ -189,14 +199,17 @@ function buildScales() {
   }
   colorOf = (m) => (state.special?.(m) ? state.special(m).c : base(m));
   colorOf.ramp = base.ramp;
-  const sv = all.map((m) => m[state.size] ?? 0).sort(d3.ascending);
+  // storm days in the selected years share the 20-year scale (both are storm days a year), so sizes compare across years
+  const scaleKey = state.size === "stormDaysSel" ? "stormDays" : state.size;
+  const sv = all.map((m) => m[scaleKey] ?? 0).sort(d3.ascending);
   const sMax = d3.quantileSorted(sv, 0.985) || 1;
   const s = d3.scaleSqrt().domain([0, sMax]).range([0.7, 3.3]).clamp(true);
   sizeOf = (m) => s(m[state.size] ?? 0);
   sizeOf.scale = s; sizeOf.max = sMax;
   // stacks: height is linear in the amount; one bundle is a round amount so the tallest stack has about 16
+  // (while the years play, one bundle stays fixed so the stacks compare from year to year)
   if (state.stack.length) {
-    const top = d3.max(all, stackTotal) || 1, raw = top / 16, p = 10 ** Math.floor(Math.log10(raw));
+    const top = (state.stack[0].key === "damageSel" && yearSel.lockTop) || d3.max(all, stackTotal) || 1, raw = top / 16, p = 10 ** Math.floor(Math.log10(raw));
     bundle = [1, 2, 2.5, 5, 10].map((k) => k * p).find((v) => v >= raw);
   }
 }
@@ -422,11 +435,13 @@ function applyStyle() {
     o.softMat.color.copy(c); o.softMat.emissive.copy(c).multiplyScalar(0.3);
     o.halo.material.color.copy(c);
     o.alphaTo = state.focus && !state.focus.has(m.fips) ? 0.8 : 1;
+    if (yearsOn()) o.alphaTo = m.activeSel === 2 ? 1 : m.activeSel === 1 ? 0.42 : 0.1;   // damage / reports only / quiet in the years
   }
 }
+const yearsOn = () => state.view === "explore" && !!yearSel.range;
 
 // camera + layout tween; in the story the card on the left needs the scene nudged right and pulled back a little
-const tween = { t0: -1e9, dur: 1200, cam0: null, cam1: null };
+const tween = { t0: -1e9, dur: REDUCE ? 1 : 1200, cam0: null, cam1: null };
 function moveCamera() {
   const story = state.view === "story", dx = story ? STORY_DX[state.mode] : 0;
   let [p, t] = CAMERA[state.mode].map((v) => new THREE.Vector3(...v));
@@ -515,7 +530,7 @@ function frame(now) {
       p.sideTex.repeat.set(1, h / BUNDLE_H);
       p.sideMat.opacity = p.topMat.opacity = o.alpha;
     }
-    if (o.spin) o.spin.rotation.y += dt * SPIN[o.dom];
+    if (o.spin && !REDUCE) o.spin.rotation.y += dt * SPIN[o.dom];
     if (o.dom === 1) o.shape.rotation.x += (WIND_TILT[state.mode] - o.shape.rotation.x) * Math.min(1, dt * 4);
     o.alpha += (o.alphaTo - o.alpha) * Math.min(1, dt * 8);
     o.mat.opacity = o.alpha; o.softMat.opacity = 0.35 * o.alpha;
@@ -570,7 +585,8 @@ function exploreTip(m) {
   if (L.type === "cat") out.push(m.cat ? CATS[m.cat].name : OTHER.name);
   else if (L.type !== "peril") out.push(`${L.tab}: <b>${L.fmt(m[state.lens])}</b>`);
   for (const p of state.stack) out.push(`${PAPER_KIND[p.kind].label}: ${p.kind === "policy" || p.kind === "uncovered" ? fmtCount(m[p.key]) : fmtMoney(m[p.key])}`);
-  if (!state.stack.length) out.push(`${EXPLORE.sizes[state.size]}: ${state.size === "stormDays" ? fmt1(m.stormDays) : fmtCount(m.policies)}`);
+  if (!state.stack.length && state.size !== "stormDaysSel") out.push(`${EXPLORE.sizes[state.size]}: ${state.size === "stormDays" ? fmt1(m.stormDays) : fmtCount(m.policies)}`);
+  if (yearsOn()) out.push(`<b>${yearLabel()}</b>: ${fmt1(m.stormDaysSel)} storm days a year · ${fmtMoney(m.damageSel)} damage a year`);
   return out.join("<br>");
 }
 
@@ -671,11 +687,13 @@ function renderStory() {
     <div class="st-nav"><button class="ghost" data-go="${i - 1}" ${i === 0 ? "disabled" : ""}>← Back</button>
       <div class="st-dots">${STORY.map((_, j) => `<i class="${j === i ? "on" : ""}"></i>`).join("")}</div>
       ${i < STORY.length - 1 ? `<button data-go="${i + 1}">Next →</button>` : `<button data-go="explore">Explore →</button>`}</div>`;
+  roll($("#story .st-stat b"));
+  $("#story .st-vs")?.querySelectorAll("b").forEach(roll);
   $("#insights").innerHTML = `<h3>COUNTIES TO KNOW</h3>` + ch.list().map((g) => `<div class="ins-group"><div class="ins-title">${g.color ? `<i style="background:${g.color}"></i>` : ""}${g.title}<span>${g.sub}</span></div>` +
     g.rows.map((r, k) => `<button class="ins-row" data-f="${r.m.fips}"><em>${k + 1}</em><span>${r.m.name}</span><b>${r.value}</b><u style="width:${Math.max(4, r.bar * 100)}%;background:${g.color ?? colorOf(r.m)}"></u></button>`).join("") + `</div>`).join("");
 }
 function goChapter(i) {
-  leaveCounty(true);
+  stopPlay(true); leaveCounty(true);
   const ch = STORY[i];
   Object.assign(state, { cluster: null, view: "story", chapter: i, mode: ch.mode, lens: ch.lens, size: ch.size, stack: ch.stack ?? [], special: ch.special ?? null, sel: null });
   state.focus = ch.focus ? ch.focus() : null;
@@ -689,6 +707,11 @@ function applyExplore() {
   const coastal = ex.lens === "lossRatio" || ex.stack === "premium";
   if (ex.mode !== "burst") ex.cluster = null;
   Object.assign(state, { cluster: ex.cluster, sort: ex.sort, mode: ex.mode, lens: ex.lens, size: ex.size, stack: EXPLORE.stacks[ex.stack].parts, special: coastal ? (m) => (m.coast ? COASTAL : null) : null, focus: null, sel: null });
+  // with years picked on the timeline, storm days and damage count those years only (same units: per year)
+  if (yearSel.range) {
+    state.stack = state.stack.map((p) => (p.key === "damage" ? { ...p, key: "damageSel" } : p));
+    if (state.size === "stormDays") state.size = "stormDaysSel";
+  }
   P = []; state.pair = [];
   buildScales(); applyStyle(); renderChrome(); renderLegend(); layout();
 }
@@ -707,10 +730,100 @@ function renderChrome() {
       : `${EXPLORE.notes.burst} Open a group:<span class="cl-open">${Object.entries(BURST).map(([k, g]) => `<button data-cluster="${k}">${g.name}</button>`).join("")}</span>`;
     $("#f-stack").innerHTML = Object.entries(EXPLORE.stacks).map(([k, s]) => `<label><input type="radio" name="st" value="${k}" ${k === ex.stack ? "checked" : ""}/>${s.label}</label>`).join("");
     $("#f-size").innerHTML = Object.entries(EXPLORE.sizes).map(([k, l]) => `<label class="${ex.stack !== "none" ? "muted" : ""}"><input type="radio" name="sz" value="${k}" ${k === ex.size ? "checked" : ""}/>${l}</label>`).join("");
-    $("#kpis").innerHTML = `<div><b>${fmtInt(TX.reports)}</b>storm reports 2006–2025</div><div><b>${fmtMoney(TX.damageYr)}</b>property damage a year</div>
+    const Ys = yearSel.range ? TX.years.filter((Y) => Y.year >= yearSel.range[0] && Y.year <= yearSel.range[1]) : null;
+    const kpis = `<div><b>${fmtInt(Ys ? d3.sum(Ys, (Y) => Y.rep) : TX.reports)}</b>storm reports ${Ys ? yearLabel() : "2006–2025"}</div><div><b>${fmtMoney(Ys ? d3.mean(Ys, (Y) => Y.dmg) : TX.damageYr)}</b>property damage a year${Ys ? `, ${yearLabel()}` : ""}</div>
       <div><b>${fmtPct(TX.coverage)}</b>of owner homes insured</div><div><b>${fmtCents(TX.lossRatio)}</b>claims per premium dollar</div>`;
+    if (kpis !== renderChrome.kpis) {
+      const was = [...$("#kpis").querySelectorAll("b")].map((b) => b.getAttribute("aria-label") ?? b.textContent);
+      $("#kpis").innerHTML = renderChrome.kpis = kpis;
+      $("#kpis").querySelectorAll("b").forEach((b, i) => b.textContent !== was[i] && roll(b));   // only the numbers that changed roll
+    }
+    renderYears();
   }
   renderPanels();
+}
+
+// ---------------------------------------------------------------- rolling numbers: digits roll into place, like an odometer
+function roll(el) {
+  if (!el || REDUCE) return;
+  const txt = el.textContent;
+  el.setAttribute("aria-label", txt);
+  el.innerHTML = [...txt].map((ch, i) => (/\d/.test(ch) ? `<span class="rd" aria-hidden="true"><span class="rd-col" data-d="${ch}" style="--i:${i}">${"0123456789".split("").map((d) => `<span>${d}</span>`).join("")}</span></span>` : `<span aria-hidden="true">${ch.replace("<", "&lt;")}</span>`)).join("");
+  requestAnimationFrame(() => requestAnimationFrame(() => el.querySelectorAll(".rd-col").forEach((c) => (c.style.transform = `translateY(${-10 * c.dataset.d}%)`))));
+}
+
+// ---------------------------------------------------------------- years timeline (Explore): property damage by year and peril;
+// drag across the bars for a range, click a bar for one year, or play the years in turn
+const yearLabel = () => (!yearSel.range ? "2006–2025" : yearSel.range[0] === yearSel.range[1] ? `${yearSel.range[0]}` : `${yearSel.range[0]}–${yearSel.range[1]}`);
+const TL = { W: 268, H: 70 };
+function setYears(range, quiet) {
+  yearSel.range = range && !(range[0] === TX.years[0].year && range[1] === LAST_YEAR) ? range : null;
+  if (yearSel.range) for (const m of M.values()) {
+    let days = 0, dmg = 0, dd = 0; const [a, b] = yearSel.range;
+    for (let y = a; y <= b; y++) { const v = m.years[y]; if (v) { days += v.days; dmg += v.dmg; dd += v.dmgDays; } }
+    m.stormDaysSel = days / (b - a + 1); m.damageSel = dmg / (b - a + 1); m.activeSel = dd ? 2 : days ? 1 : 0;
+  }
+  if (!quiet) applyExplore();
+}
+function buildYears() {
+  const { W, H } = TL, years = TX.years.map((Y) => Y.year);
+  const x = d3.scaleBand(years, [0, W]).padding(0.16), y = d3.scaleLinear([0, d3.max(TX.years, (Y) => Y.dmg)], [H, 0]);
+  TL.x = x;
+  const svg = d3.select("#yr-chart").attr("viewBox", `0 -8 ${W} ${H + 22}`).html("");
+  svg.append("text").attr("class", "yr-max").attr("x", W).attr("y", -1).attr("text-anchor", "end").text(`max ${fmtMoney(y.domain()[1])} a year`);
+  const g = svg.append("g").attr("class", "yr-bars");
+  for (const Y of TX.years) {
+    let y0 = H;
+    const col = g.append("g").attr("data-y", Y.year);
+    PERILS.forEach((p) => { const h = H - y(Y.dmgP[p.k]); if (h <= 0) return; y0 -= h; col.append("rect").attr("x", x(Y.year)).attr("y", y0).attr("width", x.bandwidth()).attr("height", h).attr("fill", p.c); });
+    col.append("rect").attr("class", "yr-floor").attr("x", x(Y.year)).attr("y", H - 1.5).attr("width", x.bandwidth()).attr("height", 1.5);
+  }
+  svg.append("g").attr("class", "yr-axis").selectAll("text").data(years.filter((v) => v % 5 === 0 || v === years[0])).join("text")
+    .attr("x", (v) => x(v) + x.bandwidth() / 2).attr("y", H + 12).attr("text-anchor", "middle").text((v) => `’${String(v).slice(2)}`);
+  // the brush snaps to whole years; a click without a drag picks the year under the pointer
+  const yearAt = (px) => years[Math.max(0, Math.min(years.length - 1, Math.floor(px / x.step())))];
+  const brush = d3.brushX().extent([[0, -8], [W, H]]).on("end", (e) => {
+    if (!e.sourceEvent) return;
+    stopPlay();
+    if (!e.selection) { const [px] = d3.pointer(e.sourceEvent, svg.node()); return setYears([yearAt(px), yearAt(px)]); }
+    const a = yearAt(e.selection[0] + 1), b = yearAt(e.selection[1] - 1);
+    setYears([a, Math.max(a, b)]);
+  });
+  TL.brush = brush; TL.gb = svg.append("g").attr("class", "yr-brush").call(brush);
+  TL.gb.select(".overlay").on("pointermove.tip", (e) => { const v = yearAt(d3.pointer(e, svg.node())[0]); yearsReadout(v); }).on("pointerleave.tip", () => yearsReadout());
+  $("#yr-play").onclick = () => (yearSel.play ? stopPlay() : startPlay());
+  $("#yr-all").onclick = () => { stopPlay(); setYears(null); };
+}
+function renderYears() {
+  if (!TL.gb) return;
+  const r = yearSel.range, x = TL.x;
+  TL.gb.call(TL.brush.move, r ? [x(r[0]), x(r[1]) + x.bandwidth()] : null);
+  d3.selectAll("#yr-chart .yr-bars > g").classed("off", function () { const v = +this.dataset.y; return !!r && (v < r[0] || v > r[1]); });
+  $("#yr-all").disabled = !r;
+  $("#yr-play").textContent = yearSel.play ? "❚❚ Pause" : "▶ Play years";
+  $("#yr-play").setAttribute("aria-pressed", !!yearSel.play);
+  yearsReadout();
+}
+// the line under the chart: the picked years, or the year under the pointer
+function yearsReadout(hoverYear) {
+  const r = hoverYear ? [hoverYear, hoverYear] : yearSel.range, Ys = r ? TX.years.filter((Y) => Y.year >= r[0] && Y.year <= r[1]) : TX.years;
+  const lab = !r ? "All 20 years" : r[0] === r[1] ? `${r[0]}` : `${r[0]}–${r[1]}`, n = Ys.length;
+  const html = `<b>${lab}</b> · ${fmtMoney(d3.sum(Ys, (Y) => Y.dmg) / n)} damage a year · ${fmtInt(d3.sum(Ys, (Y) => Y.rep))} reports${n === 1 ? ` · ${Ys[0].counties} counties hit` : ""}`;
+  $("#yr-read").innerHTML = html;
+  $("#yr-read").classList.toggle("hover", !!hoverYear);
+}
+function startPlay() {
+  // one bundle stays fixed while the years play, set by a high county-year (99.5th percentile; the rare worse years stand taller)
+  const cy = [...M.values()].flatMap((m) => Object.values(m.years).map((v) => v.dmg)).filter((v) => v > 0).sort(d3.ascending);
+  yearSel.lockTop = d3.quantileSorted(cy, 0.995);
+  let yr = yearSel.range && yearSel.range[0] === yearSel.range[1] && yearSel.range[0] < LAST_YEAR ? yearSel.range[0] + 1 : TX.years[0].year;
+  const step = () => { setYears([yr, yr]); if (++yr > LAST_YEAR) yearSel.play = setTimeout(stopPlay, 1600); else yearSel.play = setTimeout(step, REDUCE ? 1800 : 1400); };
+  yearSel.play = true; step();
+}
+function stopPlay(quiet) {
+  if (!yearSel.play) return;
+  clearTimeout(yearSel.play); yearSel.play = null; yearSel.lockTop = null;
+  if (!quiet && state.view === "explore") applyExplore(); else renderYears();
 }
 
 // ---------------------------------------------------------------- legend: shapes, stack, colour (every colour named)
@@ -718,10 +831,12 @@ function renderLegend() {
   const L = LENSES[state.lens], ink = "#3c4256";
   $("#shape-legend").innerHTML = `<div class="lg-title">Shape = main storm</div><div class="lg-row">${PERILS.map((p) => `<div>${iconSVG(p.k, L.type === "peril" ? p.c : ink)}<span>${p.name}</span></div>`).join("")}</div>`;
   if (useStack()) {
-    $("#size-legend").innerHTML = `<div class="lg-title">Stack height = amount · one bundle ≈ ${state.stack[0].kind === "policy" ? `${fmtCount(bundle)} homes` : fmtMoney(bundle)}</div><div class="lg-row">${state.stack.map((s) => `<div class="cash-leg">${stackSVG(s.kind, 3)}<span>${PAPER_KIND[s.kind].label}</span></div>`).join("")}</div>`;
+    const yrs = state.stack[0].key === "damageSel" ? ` a year, ${yearLabel()}` : "";
+    $("#size-legend").innerHTML = `<div class="lg-title">Stack height = amount · one bundle ≈ ${state.stack[0].kind === "policy" ? `${fmtCount(bundle)} homes` : fmtMoney(bundle)}</div><div class="lg-row">${state.stack.map((s) => `<div class="cash-leg">${stackSVG(s.kind, 3)}<span>${PAPER_KIND[s.kind].label}${yrs}</span></div>`).join("")}</div>`;
   } else {
-    const ticks = [sizeOf.max, sizeOf.max / 4, sizeOf.max / 25], px = (v) => sizeOf.scale(v) * 6, R = px(ticks[0]), base = R * 2 + 8, f = state.size === "stormDays" ? fmt1 : fmtCount;
-    $("#size-legend").innerHTML = `<div class="lg-title">Size = ${state.size === "stormDays" ? "storm days a year" : "homeowners policies"}</div><svg width="${R * 2 + 64}" height="${base + 2}">${ticks.map((v) => `<circle cx="${R + 1}" cy="${base - px(v)}" r="${px(v)}" fill="none" stroke="#3c4256" stroke-opacity=".55"/><line x1="${R + 1}" x2="${R * 2 + 8}" y1="${base - 2 * px(v)}" y2="${base - 2 * px(v)}" stroke="#3c4256" stroke-opacity=".3"/><text x="${R * 2 + 10}" y="${base + 3.5 - 2 * px(v)}">${f(v)}</text>`).join("")}</svg>`;
+    const days = state.size.startsWith("stormDays");
+    const ticks = [sizeOf.max, sizeOf.max / 4, sizeOf.max / 25], px = (v) => sizeOf.scale(v) * 6, R = px(ticks[0]), base = R * 2 + 8, f = days ? fmt1 : fmtCount;
+    $("#size-legend").innerHTML = `<div class="lg-title">Size = ${days ? `storm days a year${state.size === "stormDaysSel" ? `, ${yearLabel()}` : ""}` : "homeowners policies"}</div><svg width="${R * 2 + 64}" height="${base + 2}">${ticks.map((v) => `<circle cx="${R + 1}" cy="${base - px(v)}" r="${px(v)}" fill="none" stroke="#3c4256" stroke-opacity=".55"/><line x1="${R + 1}" x2="${R * 2 + 8}" y1="${base - 2 * px(v)}" y2="${base - 2 * px(v)}" stroke="#3c4256" stroke-opacity=".3"/><text x="${R * 2 + 10}" y="${base + 3.5 - 2 * px(v)}">${f(v)}</text>`).join("")}</svg>`;
   }
   const sw = (c, t) => `<span><i style="background:${c}"></i>${t}</span>`;
   const extra = [];
@@ -836,6 +951,7 @@ function cvStack(kind, amount, bundleAmt, x, z, y0 = 0) {
 
 function openCounty(fips) {
   if (!fips) return;
+  stopPlay(true);
   if (CV) clearCounty();
   const m = M.get(fips);
   state.county = fips;
@@ -947,17 +1063,20 @@ function buildCounty(m) {
   // NOAA reports as dots where they happened, and the storm lines retargeted to their centre
   loadEvents(m.fips).then((ev) => {
     if (!CV || CV.fips !== m.fips) return;
-    const sphere = own(new THREE.SphereGeometry(0.17, 8, 6)), dummy = new THREE.Object3D(), cent = [[], [], []];
+    const sphere = own(new THREE.SphereGeometry(0.17, 8, 6)), cent = [[], [], []];
+    CV.dots = [];
     for (const p of PERILS) {
       const rs = ev.rows.filter((r) => r[2] === p.k && r[6] != null && r[7] != null);
       if (!rs.length) continue;
-      const im = new THREE.InstancedMesh(sphere, own(new THREE.MeshStandardMaterial({ color: p.c, roughness: 0.5, transparent: true, opacity: 0.85 })), rs.length);
-      rs.forEach((r, i) => {
+      const im = new THREE.InstancedMesh(sphere, own(new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.5, transparent: true, opacity: 0.85 })), rs.length);
+      const pts = rs.map((r) => {
         const [x, z] = P([r[7], r[6]]); cent[p.k].push([x, z]);
-        dummy.position.set(x, SLAB + 0.12, z); dummy.scale.setScalar(r[4] > 0 ? 1 + Math.min(1.6, Math.log10(1 + r[4] / 1e4) * 0.5) : 0.8); dummy.updateMatrix(); im.setMatrixAt(i, dummy.matrix);
+        return { x, z, s: r[4] > 0 ? 1 + Math.min(1.6, Math.log10(1 + r[4] / 1e4) * 0.5) : 0.8, y: Math.floor(r[0] / 10000), mo: Math.floor(r[0] / 100) % 100 };
       });
+      CV.dots.push({ im, pts, c: new THREE.Color(p.c) });
       group.add(im);
     }
+    paintDots();
     for (const d of CV.drop) {
       const c = cent[d.k] ?? [];
       const end = c.length ? V(d3.mean(c, (q) => q[0]), SLAB, d3.mean(c, (q) => q[1])) : V(cx, SLAB, cz);
@@ -967,22 +1086,90 @@ function buildCounty(m) {
   buildLabels();
 }
 
+// report dots, all of them or only the month / year picked on the storm calendar (the rest shrink and turn grey)
+const DOT_OFF = new THREE.Color("#cdd2e0"), dotDummy = new THREE.Object3D();
+function paintDots() {
+  if (!CV?.dots) return;
+  const sel = CV.cal;
+  for (const { im, pts, c } of CV.dots) {
+    pts.forEach((d, i) => {
+      const on = !sel || (d.y === sel.y && (sel.mo == null || d.mo === sel.mo));
+      dotDummy.position.set(d.x, SLAB + 0.12, d.z); dotDummy.scale.setScalar(d.s * (on ? (sel ? 1.45 : 1) : 0.45)); dotDummy.updateMatrix();
+      im.setMatrixAt(i, dotDummy.matrix); im.setColorAt(i, on ? c : DOT_OFF);
+    });
+    im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true;
+  }
+}
+
+// storm calendar: one row per year, one cell per month; colour = the peril behind most of that month's damage (or reports),
+// darker = more storm days. Click a month or a year to show only its reports on the county.
+function buildCalendar(m) {
+  const w0 = LAST_YEAR - WINDOW + 1, cells = new Map();
+  for (const r of SD.counties[m.fips] ?? []) {
+    const y = Math.floor(r[0] / 10000), mo = Math.floor(r[0] / 100) % 100; if (y < w0) continue;
+    const n = r[4] + r[5] + r[6]; if (!n) continue;
+    const key = y * 100 + mo, c = cells.get(key) ?? { y, mo, days: 0, rep: [0, 0, 0], dmg: [0, 0, 0] };
+    c.days++; for (const p of [0, 1, 2]) { c.rep[p] += r[4 + p]; c.dmg[p] += r[1 + p] * CPI.toBase[y]; }
+    cells.set(key, c);
+  }
+  for (const c of cells.values()) { const d = d3.sum(c.dmg); c.k = d > 0 ? c.dmg.indexOf(d3.max(c.dmg)) : c.rep.indexOf(d3.max(c.rep)); c.total = d; }
+  const W = 314, L = 30, cw = (W - L) / 12, ch = 9.5, years = d3.range(w0, LAST_YEAR + 1), H = years.length * ch + 14;
+  const fill = (c) => d3.interpolateRgb("#eef0f6", PERILS[c.k].c)(c.days >= 5 ? 1 : c.days >= 3 ? 0.78 : c.days === 2 ? 0.58 : 0.4);
+  const svg = d3.select("#cv-cal").attr("viewBox", `0 0 ${W} ${H}`).html("");
+  svg.append("g").attr("class", "cal-m").selectAll("text").data("JFMAMJJASOND".split("")).join("text")
+    .attr("x", (_, i) => L + i * cw + cw / 2).attr("y", 8).attr("text-anchor", "middle").text((d) => d);
+  const yl = svg.append("g").attr("class", "cal-y").selectAll("text").data(years).join("text")
+    .attr("x", L - 5).attr("y", (y, i) => 14 + i * ch + ch - 2).attr("text-anchor", "end").text((y) => y)
+    .attr("tabindex", 0).attr("role", "button").attr("aria-label", (y) => `Show ${y} reports`);
+  const g = svg.append("g").attr("transform", "translate(0,14)");
+  g.selectAll("rect.bg").data(years.flatMap((y) => d3.range(1, 13).map((mo) => ({ y, mo })))).join("rect").attr("class", "bg")
+    .attr("x", (d) => L + (d.mo - 1) * cw + 0.75).attr("y", (d) => (d.y - w0) * ch + 0.75).attr("width", cw - 1.5).attr("height", ch - 1.5).attr("rx", 1.5);
+  const cell = g.selectAll("rect.on").data([...cells.values()]).join("rect").attr("class", "on")
+    .attr("x", (d) => L + (d.mo - 1) * cw + 0.75).attr("y", (d) => (d.y - w0) * ch + 0.75).attr("width", cw - 1.5).attr("height", ch - 1.5).attr("rx", 1.5)
+    .attr("fill", fill).attr("tabindex", 0).attr("role", "button")
+    .attr("aria-label", (d) => `${monthName(d)}: ${d.days} storm days, ${fmtMoney(d.total)} damage`);
+  const tip = $("#tip");
+  cell.on("pointermove", (e, d) => {
+    tip.innerHTML = `<b>${monthName(d)}</b><br>${d.days} storm day${d.days > 1 ? "s" : ""} · ${fmtMoney(d.total)} damage<br>${PERILS.filter((p) => d.rep[p.k]).map((p) => `<span class="sw" style="background:${p.c}"></span>${d.rep[p.k]} ${p.name.toLowerCase()}`).join(" &nbsp;")}<br><small>click to show only these reports</small>`;
+    tip.hidden = false; tip.style.left = `${Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 10)}px`; tip.style.top = `${e.clientY + 14}px`;
+  }).on("pointerleave", () => (tip.hidden = true));
+  const pickCal = (sel) => {
+    CV.cal = sel && CV.cal && CV.cal.y === sel.y && CV.cal.mo === sel.mo ? null : sel;
+    cell.classed("sel", (d) => !!CV.cal && d.y === CV.cal.y && (CV.cal.mo == null || d.mo === CV.cal.mo));
+    yl.classed("sel", (y) => !!CV.cal && CV.cal.mo == null && y === CV.cal.y);
+    const s = CV.cal, inSel = s ? [...cells.values()].filter((c) => c.y === s.y && (s.mo == null || c.mo === s.mo)) : [];
+    $("#cv-cal-note").innerHTML = s ? `Showing <b>${s.mo == null ? s.y : monthName(s)}</b>: ${d3.sum(inSel, (c) => c.days)} storm days · ${fmtInt(d3.sum(inSel, (c) => d3.sum(c.rep)))} reports · ${fmtMoney(d3.sum(inSel, (c) => c.total))} <button class="cal-clear">Show all</button>` : "All 20 years of reports on the map.";
+    paintDots();
+  };
+  const key = (fn) => (e, d) => { if (e.type === "click" || e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(d); } };
+  cell.on("click keydown", key((d) => pickCal({ y: d.y, mo: d.mo })));
+  yl.on("click keydown", key((y) => pickCal({ y, mo: null })));
+  $("#cv-cal-note").onclick = (e) => { if (e.target.closest(".cal-clear")) pickCal(null); };
+  pickCal(null);
+}
+const monthName = (d) => new Date(d.y, d.mo - 1, 15).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+
 function renderCountyPanel(m) {
   const stats = perilStats(m), row = (s) => `<div class="cv-row${s.n ? "" : " off"}">${iconSVG(s.k, s.c)}<div><b>${s.long}</b><span>${fmtInt(s.n)} ${s.unit} · ${worstText(s)}</span></div><em>${fmtMoney(s.dmgYr)}<small>/yr</small></em></div>`;
   const house = (c) => `<svg viewBox="0 0 20 20" width="16" height="16"><path d="M3 9 L10 3 L17 9Z" fill="${c}"/><rect x="5" y="9" width="10" height="8" fill="#fff" stroke="${c}" stroke-width="1.2"/></svg>`;
   $("#county").innerHTML = `<button class="cv-back">← Back to Texas</button>
     <div class="st-step">County view · 2006–2025</div><h2>${m.name} County</h2>
     <div class="cv-sec">The three perils <span>damage a year, 2025 $</span></div>${stats.map(row).join("")}
+    <div class="cv-sec">Storm calendar <span>click a month or a year</span></div>
+    <svg id="cv-cal" class="cv-cal" role="group" aria-label="Storm days by month, 2006 to 2025"></svg>
+    <div class="cv-cal-key">${PERILS.map((p) => `<span><i style="background:${p.c}"></i>${p.name}</span>`).join("")}<span class="dim">darker = more storm days</span></div>
+    <div class="cv-cal-note" id="cv-cal-note" aria-live="polite"></div>
     <div class="cv-sec">Homes <span>20 houses = all owner homes</span></div>
     <div class="cv-legend">${m.coverage == null ? `${house("#9aa0b4")} ${fmtCount(m.owners)} owner homes, no TDI policy data` : `<span>${house("#2c5aa0")} insured <b>${fmtPct(m.coverage)}</b> · ${fmtCount(m.insured)}</span><span>${house("#c81d4b")} no policy <b>${fmtPct(m.uncoveredShare)}</b> · ${fmtCount(m.uncovered)}</span>`}</div>
     <div class="cv-sec">Money a year <span>one bundle ≈ ${fmtMoney(CV.bundle)}</span></div>
     <div class="cv-legend"><span>${stackSVG("damage", 2)} storm damage <b>${fmtMoney(m.damage)}</b></span>${m.premiumYear != null ? `<span>${stackSVG("claims", 2)} claims paid <b>${fmtMoney(m.paidPerYear)}</b></span><span>${stackSVG("money", 2)} premium kept <b>${fmtMoney(Math.max(0, m.premiumYear - m.paidPerYear))}</b></span>` : ""}</div>
     <p class="cv-note">Dots: every NOAA hail, wind and tornado report, where it happened (bigger = damage reported). Drag to turn, hover for numbers.</p>`;
   $("#county .cv-back").onclick = () => leaveCounty();
+  buildCalendar(m);
 }
 
 function animateCounty(now, dt) {
-  const t = now - CV.t0;
+  const t = REDUCE ? 1e6 : now - CV.t0;
   for (const g of CV.grow) {
     const e = ease(Math.min(1, Math.max(0, (t - g.delay) / 700)));
     if (g.slab) g.o.scale.y = Math.max(0.001, e);
@@ -990,7 +1177,7 @@ function animateCounty(now, dt) {
     else g.o.scale.setScalar(Math.max(0.001, g.s * e));
   }
   if (t > 1200) for (const d of CV.drop) d.line.visible = true;
-  for (const s of CV.spin) s.o.rotation.y += dt * SPIN[s.k];
+  if (!REDUCE) for (const s of CV.spin) s.o.rotation.y += dt * SPIN[s.k];
 }
 function pickCounty() {
   raycaster.setFromCamera(pointer, camera);
@@ -1000,6 +1187,40 @@ function pickCounty() {
   tip.innerHTML = hit.object.userData.tip; tip.hidden = false;
   tip.style.left = `${Math.min(pointerEvt.clientX + 16, innerWidth - tip.offsetWidth - 10)}px`;
   tip.style.top = `${Math.min(pointerEvt.clientY + 16, innerHeight - tip.offsetHeight - 10)}px`;
+}
+
+// ---------------------------------------------------------------- finder: "/" or ⌘K opens a search over counties and chapters
+const finder = { items: [], active: 0 };
+function openFinder() {
+  const d = $("#finder"); if (d.open) return;
+  $("#tip").hidden = true;
+  d.showModal(); $("#finder-q").value = ""; renderFinder(); $("#finder-q").focus();
+}
+function renderFinder() {
+  const q = $("#finder-q").value.trim().toLowerCase();
+  const score = (name) => { const n = name.toLowerCase(); return !q ? 0 : n.startsWith(q) ? 0 : n.split(/[\s:]+/).some((w) => w.startsWith(q)) ? 1 : n.includes(q) ? 2 : -1; };
+  const counties = [...M.values()].map((m) => ({ kind: "county", m, name: m.name, s: score(m.name) })).filter((x) => x.s >= 0)
+    .sort((a, b) => a.s - b.s || (q ? a.name.localeCompare(b.name) : b.m.damage - a.m.damage)).slice(0, q ? 8 : 5);
+  const chapters = STORY.map((c, i) => ({ kind: "chapter", i, name: `${i + 1}. ${c.title}`, s: score(`${c.short} ${c.title}`) })).filter((x) => x.s >= 0).slice(0, q ? 3 : 7);
+  finder.items = [...counties, ...chapters]; finder.active = 0;
+  const row = (x, j) => x.kind === "county"
+    ? `<li role="option" id="fi-${j}" data-j="${j}">${iconSVG(x.m.dom, x.m.dom >= 0 ? PERILS[x.m.dom].c : NO_DATA)}<span><b>${x.name} County</b><small>${fmt1(x.m.stormDays)} storm days a year · ${fmtMoney(x.m.damage)} damage a year · ${fmtPct(x.m.coverage)} insured</small></span><kbd>Open map</kbd></li>`
+    : `<li role="option" id="fi-${j}" data-j="${j}"><svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="17" fill="none" stroke="currentColor" stroke-width="3"/><text x="30" y="37" text-anchor="middle" font-size="20" font-weight="700" fill="currentColor">${x.i + 1}</text></svg><span><b>${STORY[x.i].title}</b><small>Story chapter ${x.i + 1} of ${STORY.length}</small></span><kbd>Go</kbd></li>`;
+  const counted = counties.length, list = finder.items.map(row);
+  $("#finder-list").innerHTML = (counted ? `<li class="fh" role="presentation">${q ? "Counties" : "Most damage a year"}</li>${list.slice(0, counted).join("")}` : "")
+    + (chapters.length ? `<li class="fh" role="presentation">Chapters</li>${list.slice(counted).join("")}` : "")
+    + (!finder.items.length ? `<li class="fh" role="presentation">No county or chapter matches “${q.replace(/</g, "&lt;")}”</li>` : "");
+  markFinder();
+}
+function markFinder() {
+  document.querySelectorAll("#finder-list li[data-j]").forEach((li) => li.classList.toggle("on", +li.dataset.j === finder.active));
+  $("#finder-q").setAttribute("aria-activedescendant", finder.items.length ? `fi-${finder.active}` : "");
+  $(`#fi-${finder.active}`)?.scrollIntoView({ block: "nearest" });
+}
+function chooseFinder(j) {
+  const x = finder.items[j]; if (!x) return;
+  $("#finder").close();
+  if (x.kind === "county") openCounty(x.m.fips); else goChapter(x.i);
 }
 
 // ---------------------------------------------------------------- wiring
@@ -1021,7 +1242,20 @@ function bind() {
   $("#county-list").innerHTML = [...M.values()].sort((a, b) => a.name.localeCompare(b.name)).map((m) => `<option value="${m.name}"></option>`).join("");
   $("#search").addEventListener("change", (e) => { const m = [...M.values()].find((x) => x.name.toLowerCase() === e.target.value.trim().toLowerCase()); if (m) { e.target.value = ""; openCounty(m.fips); } });
   $("#insights").addEventListener("click", (e) => { const b = e.target.closest(".ins-row"); if (b) openCounty(+b.dataset.f); });
+  $("#btn-find").onclick = openFinder;
+  $("#finder-q").addEventListener("input", renderFinder);
+  $("#finder-q").addEventListener("keydown", (e) => {
+    const n = finder.items.length;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (n) { finder.active = (finder.active + (e.key === "ArrowDown" ? 1 : n - 1)) % n; markFinder(); } }
+    if (e.key === "Enter") { e.preventDefault(); chooseFinder(finder.active); }
+  });
+  $("#finder-list").addEventListener("click", (e) => { const li = e.target.closest("li[data-j]"); if (li) chooseFinder(+li.dataset.j); });
+  $("#finder-list").addEventListener("pointermove", (e) => { const li = e.target.closest("li[data-j]"); if (li && +li.dataset.j !== finder.active) { finder.active = +li.dataset.j; markFinder(); } });
+  $("#finder").addEventListener("click", (e) => { if (e.target === $("#finder")) $("#finder").close(); });   // click outside the card
+  buildYears();
   addEventListener("keydown", (e) => {
+    if ($("#finder").open) return;
+    if (!e.target.matches("input") && (e.key === "/" || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k"))) { e.preventDefault(); return openFinder(); }
     if (e.key === "Escape") { $("#guide").hidden = true; if (CV) leaveCounty(); else if (state.sel) select(null); else if (state.cluster) openCluster(null); }
     if (state.view !== "story" || e.target.matches("input")) return;
     if (e.key === "ArrowRight") state.chapter < STORY.length - 1 ? goChapter(state.chapter + 1) : startExplore();

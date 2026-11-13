@@ -6,7 +6,7 @@
   <title>Storm Risk Cosmos · Texas</title>
   <meta name="description" content="A 3D story of storms, damage and homeowners insurance across the 254 counties of Texas." />
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="css/cosmos.css?v=12" />
+  <link rel="stylesheet" href="css/cosmos.css?v=13" />
   <script src="vendor/d3.min.js"></script>
   <script src="vendor/topojson-client.min.js"></script>
   <script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js" } }</script>
@@ -29,7 +29,8 @@
         <li><b>Stacks</b> under a storm show amounts: green money for dollars, red bills for claims paid, blue policy paper for insured homes, rose sheets for homes without a policy. Taller = more; every bundle is the same amount.</li>
         <li><b>Colour</b> is named at the bottom of the screen. Each chapter rings and labels two counties that make its point by contrast.</li>
         <li><b>Story</b> walks through seven chapters with Back / Next or the arrow keys; <b>Explore</b> (top right, or after the last chapter) lets you pick any colour, layout and stack.</li>
-        <li>Drag to turn, scroll to zoom, hover for numbers. <b>Click a county</b> to open its own 3D view: its hail, thunderstorm wind and tornado above it, its homes as houses and its money as paper stacks; <b>Back to Texas</b> or Esc returns.</li>
+        <li>Drag to turn, scroll to zoom, hover for numbers. <b>Click a county</b> to open its own 3D view: its hail, thunderstorm wind and tornado above it, its homes as houses and its money as paper stacks; <b>Back to Texas</b> or Esc returns. Its <b>storm calendar</b> (year × month) shows when storms came; click a month to see only its reports.</li>
+        <li><b>Find</b> (top right, or press <b>/</b>) jumps to any county or chapter. In Explore, the <b>Years</b> chart picks one year or a range, or plays the 20 years in turn.</li>
       </ul>
       <button id="guide-close">Got it</button>
     </div>
@@ -40,7 +41,7 @@
     <div class="brand"><span class="neon-sm">STORM RISK COSMOS</span><small>Texas homeowners insurance</small></div>
     <nav id="chapters"></nav>
     <nav id="tabs"></nav>
-    <div class="top-right"><div id="view-toggle" class="seg"><button data-v="story" class="on">Story</button><button data-v="explore">Explore</button></div><a href="analysis.html" class="link">2D analysis</a><button id="btn-help" class="round" title="How to read">?</button></div>
+    <div class="top-right"><button id="btn-find" class="find-btn" title="Find a county or chapter (/ or ⌘K)" aria-haspopup="dialog" aria-label="Find a county or chapter"><svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13 13l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="find-lab">Find</span><kbd>/</kbd></button><div id="view-toggle" class="seg"><button data-v="story" class="on">Story</button><button data-v="explore">Explore</button></div><a href="analysis.html" class="link">2D analysis</a><button id="btn-help" class="round" title="How to read">?</button></div>
   </header>
 
   <div id="kpis"></div>
@@ -70,6 +71,13 @@
       <div id="f-stack" class="radios"></div>
       <h3>SIZE <small>(when stacks are off)</small></h3>
       <div id="f-size" class="radios"></div>
+      <h3>YEARS <small>property damage by year</small></h3>
+      <div id="f-years">
+        <svg id="yr-chart" role="img" aria-label="Property damage by year and peril, 2006 to 2025. Drag across the bars to pick years."></svg>
+        <div id="yr-read" aria-live="polite"></div>
+        <div class="yr-btns"><button id="yr-play" aria-pressed="false">▶ Play years</button><button id="yr-all" disabled>All years</button></div>
+        <p class="yr-note">Drag for a range, click a bar for one year. Storm days, damage stacks and the fading follow the years; colours stay 2006–2025.</p>
+      </div>
     </div>
     <div id="card" hidden></div>
   </aside>
@@ -83,6 +91,16 @@
   <footer id="foot">NOAA Storm Events 2006–2025 (NWS damage estimates, not insured loss) · TDI homeowners losses 2019–2025, excluding TWIA · TDI premiums · ACS 2020–2024 owner-occupied homes · premium estimated as policies × average premium · 2025 dollars (CPI-U)</footer>
   <div id="tip" hidden></div>
 
-  <script type="module" src="js/cosmos3d.js?v=12"></script>
+  <!-- finder: counties and chapters, keyboard first -->
+  <dialog id="finder" aria-label="Find a county or chapter">
+    <div class="finder-card">
+      <div class="finder-in"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13 13l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input id="finder-q" placeholder="Type a county or a chapter…" autocomplete="off" role="combobox" aria-expanded="true" aria-controls="finder-list" aria-autocomplete="list" /><kbd>Esc</kbd></div>
+      <ul id="finder-list" role="listbox"></ul>
+      <div class="finder-foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>Esc</kbd> close</span></div>
+    </div>
+  </dialog>
+
+  <script type="module" src="js/cosmos3d.js?v=13"></script>
 </body>
 </html>

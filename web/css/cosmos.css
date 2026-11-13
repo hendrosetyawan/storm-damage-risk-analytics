@@ -143,7 +143,7 @@ aside h3 { margin: 14px 0 8px; font-size: 13px; letter-spacing: 0.18em; color: v
 #story h2 { margin: 4px 0 10px; font-size: 23px; line-height: 1.15; }
 .st-stat { display: flex; flex-direction: column; padding: 10px 12px; background: var(--accent-soft); border-radius: 10px; margin-bottom: 10px; }
 .st-stat b { font-size: 30px; line-height: 1.05; color: var(--accent); }
-.st-stat span { font-size: 12px; color: #5a4a50; }
+.st-stat > span { font-size: 12px; color: #5a4a50; }
 #story p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.55; color: #3c4256; }
 .st-read { font-size: 11.5px; color: var(--dim); border-left: 3px solid var(--line); padding-left: 8px; margin-bottom: 12px; line-height: 1.45; }
 .st-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; }
@@ -179,9 +179,9 @@ aside h3 { margin: 14px 0 8px; font-size: 13px; letter-spacing: 0.18em; color: v
 
 /* contrast pair: in the story card and as callouts in the scene */
 .st-vs { display: flex; align-items: stretch; gap: 6px; margin: -2px 0 10px; }
-.st-vs span { flex: 1; display: flex; flex-direction: column; padding: 6px 10px; border-radius: 10px; border: 1.5px solid var(--accent); font-size: 12px; color: #3c4256; line-height: 1.25; }
-.st-vs span b { font-size: 19px; color: var(--accent); }
-.st-vs span.b { border-style: dashed; }
+.st-vs > span { flex: 1; display: flex; flex-direction: column; padding: 6px 10px; border-radius: 10px; border: 1.5px solid var(--accent); font-size: 12px; color: #3c4256; line-height: 1.25; }
+.st-vs > span > b { font-size: 19px; color: var(--accent); }
+.st-vs > span.b { border-style: dashed; }
 .st-vs i { align-self: center; font-style: normal; font-size: 11px; font-weight: 700; color: var(--dim); }
 .lab3d.pair { font-size: 13px; font-weight: 700; color: #fff; background: var(--accent); padding: 4px 9px 5px; border-radius: 8px; text-shadow: none; transform: translate(-50%, calc(-100% - 10px)); box-shadow: 0 4px 14px rgba(140, 29, 47, 0.3); text-align: center; z-index: 2; }
 .lab3d.pair small { display: block; font-size: 10.5px; font-weight: 500; opacity: 0.92; }
@@ -253,3 +253,77 @@ body.in-county #story, body.in-county #chapters, body.in-county #tabs, body.in-c
 #mode-note .cl-top em { font-style: normal; color: var(--dim); font-size: 10px; }
 #mode-note .cl-name { margin-top: 8px; }
 #mode { width: 150px; }
+
+/* rolling numbers: each digit is a column of 0-9 that slides into place */
+.rd { display: inline-block; height: 1lh; overflow: hidden; vertical-align: top; }
+.rd-col { display: flex; flex-direction: column; transition: transform 0.9s cubic-bezier(0.16, 1, 0.3, 1); transition-delay: calc(var(--i) * 28ms); }
+.rd-col span { height: 1lh; }
+
+/* years timeline (Explore, right panel) */
+#controls { overflow: auto; }
+#f-years { margin-top: 2px; }
+#yr-chart { width: 100%; display: block; overflow: visible; }
+#yr-chart .yr-bars g { transition: opacity 0.25s; }
+#yr-chart .yr-bars g.off { opacity: 0.22; }
+#yr-chart .yr-floor { fill: #c9cdd9; }
+#yr-chart .yr-axis text, #yr-chart .yr-max { fill: var(--dim); font-size: 9px; }
+#yr-chart .yr-brush .selection { fill: var(--accent); fill-opacity: 0.08; stroke: var(--accent); stroke-width: 1.2; shape-rendering: crispEdges; }
+#yr-chart .yr-brush .handle { fill: var(--accent); fill-opacity: 0.85; width: 4px; rx: 2px; }
+#yr-chart .yr-brush .overlay { cursor: crosshair; }
+#yr-read { font-size: 11.5px; color: #3c4256; min-height: 17px; margin: 2px 0 6px; }
+#yr-read b { color: var(--accent); }
+#yr-read.hover b { color: var(--ink); }
+.yr-btns { display: flex; gap: 6px; }
+.yr-btns button { flex: 1; border: 1.5px solid var(--accent); background: #fff; color: var(--accent); border-radius: 999px; padding: 5px 0; font-size: 12px; font-weight: 700; min-height: 32px; }
+.yr-btns button[aria-pressed="true"], .yr-btns button:first-child:hover { background: var(--accent); color: #fff; }
+.yr-btns button:disabled { opacity: 0.35; cursor: default; border-color: var(--line); color: var(--dim); }
+.yr-note { font-size: 10.5px; color: var(--dim); line-height: 1.4; margin: 6px 0 0; }
+
+/* storm calendar (county view) */
+.cv-cal { width: 100%; display: block; }
+.cv-cal text { fill: var(--dim); font-size: 7.5px; }
+.cv-cal .cal-y text { cursor: pointer; }
+.cv-cal .cal-y text:hover, .cv-cal .cal-y text.sel { fill: var(--accent); font-weight: 700; }
+.cv-cal rect.bg { fill: #f4f5f9; }
+.cv-cal rect.on { cursor: pointer; transition: opacity 0.2s; }
+.cv-cal rect.on:hover, .cv-cal rect.on:focus-visible { stroke: var(--ink); stroke-width: 1.2; outline: none; }
+.cv-cal rect.on.sel { stroke: var(--accent); stroke-width: 1.6; }
+.cv-cal-key { display: flex; gap: 10px; font-size: 10.5px; color: #3c4256; margin: 3px 0 2px; flex-wrap: wrap; }
+.cv-cal-key span { display: flex; align-items: center; gap: 4px; }
+.cv-cal-key i { width: 9px; height: 9px; border-radius: 2px; }
+.cv-cal-key .dim { color: var(--dim); }
+.cv-cal-note { font-size: 11px; color: #3c4256; min-height: 16px; }
+.cv-cal-note b { color: var(--accent); }
+.cal-clear { border: 1px solid var(--accent); background: #fff; color: var(--accent); border-radius: 999px; font-size: 10.5px; padding: 1px 8px; margin-left: 4px; }
+
+/* finder (Find button, "/" or ⌘K) */
+.find-btn { display: flex; align-items: center; gap: 6px; border: 1.5px solid var(--line); background: rgba(255, 255, 255, 0.9); border-radius: 999px; padding: 5px 8px 5px 11px; font-size: 12.5px; color: var(--dim); min-height: 32px; }
+.find-btn:hover { color: var(--accent); border-color: var(--accent); }
+kbd { font: 600 10px/1 "SF Mono", Menlo, monospace; color: var(--dim); border: 1px solid #d7dae4; border-bottom-width: 2px; border-radius: 4px; padding: 2px 5px; background: #fafbfd; }
+#finder { border: 0; padding: 0; background: transparent; width: min(560px, 92vw); margin: 12vh auto auto; overflow: visible; }
+#finder::backdrop { background: rgba(29, 34, 51, 0.28); backdrop-filter: blur(3px); }
+#finder[open] .finder-card { animation: finder-in 0.18s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes finder-in { from { opacity: 0; transform: translateY(-8px) scale(0.98); } }
+.finder-card { background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 24px 70px rgba(20, 30, 70, 0.25); overflow: hidden; }
+.finder-in { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); color: var(--dim); }
+.finder-in input { flex: 1; border: 0; outline: none; font: inherit; font-size: 16px; color: var(--ink); background: none; }
+#finder-list { list-style: none; margin: 0; padding: 6px; max-height: min(420px, 56vh); overflow: auto; }
+#finder-list .fh { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 700; padding: 8px 10px 4px; }
+#finder-list li[data-j] { display: grid; grid-template-columns: 32px 1fr auto; gap: 10px; align-items: center; padding: 7px 10px; border-radius: 10px; cursor: pointer; color: var(--accent); }
+#finder-list li[data-j] svg { width: 30px; height: 30px; }
+#finder-list li[data-j] b { display: block; color: var(--ink); font-size: 13.5px; }
+#finder-list li[data-j] small { color: var(--dim); font-size: 11.5px; }
+#finder-list li[data-j] kbd { opacity: 0; }
+#finder-list li.on { background: var(--accent-soft); }
+#finder-list li.on kbd { opacity: 1; color: var(--accent); }
+.finder-foot { display: flex; gap: 16px; padding: 8px 16px; border-top: 1px solid var(--line); font-size: 11px; color: var(--dim); background: #fafbfd; }
+.finder-foot kbd { margin-right: 3px; }
+
+/* keyboard focus stays visible everywhere */
+button:focus-visible, a:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
+/* the story's seven chapter buttons need the room: Find shrinks to its icon there */
+body.is-story .find-lab { display: none; }
+body.is-story .find-btn { padding: 5px 8px; }
