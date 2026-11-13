@@ -6,7 +6,7 @@
   <title>Storm Risk Cosmos · Texas</title>
   <meta name="description" content="A 3D story of storms, damage and homeowners insurance across the 254 counties of Texas." />
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="css/cosmos.css?v=13" />
+  <link rel="stylesheet" href="css/cosmos.css?v=14" />
   <script src="vendor/d3.min.js"></script>
   <script src="vendor/topojson-client.min.js"></script>
   <script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js" } }</script>
@@ -26,10 +26,10 @@
       </div>
       <ul>
         <li>Each 3D storm is one Texas county.</li>
-        <li><b>Stacks</b> under a storm show amounts: green money for dollars, red bills for claims paid, blue policy paper for insured homes, rose sheets for homes without a policy. Taller = more; every bundle is the same amount.</li>
+        <li><b>Stacks</b> under a storm show amounts: green money for dollars, red bills for claims paid. Homes stand as a tower with a penthouse on top: blue floors are insured homes, rose floors homes without a policy. Taller = more; every bundle or floor is the same amount.</li>
         <li><b>Colour</b> is named at the bottom of the screen. Each chapter rings and labels two counties that make its point by contrast.</li>
         <li><b>Story</b> walks through seven chapters with Back / Next or the arrow keys; <b>Explore</b> (top right, or after the last chapter) lets you pick any colour, layout and stack.</li>
-        <li>Drag to turn, scroll to zoom, hover for numbers. <b>Click a county</b> to open its own 3D view: its hail, thunderstorm wind and tornado above it, its homes as houses and its money as paper stacks; <b>Back to Texas</b> or Esc returns. Its <b>storm calendar</b> (year × month) shows when storms came; click a month to see only its reports.</li>
+        <li>Drag to turn, scroll to zoom, hover for numbers. <b>Click a county</b> to open its own 3D view: its hail, thunderstorm wind and tornado above it, its homes as 10 houses in a row (blue roof insured, red no policy) and its money as paper stacks; <b>Back to Texas</b> or Esc returns. Its <b>storm calendar</b> (year × month) shows when storms came; click a month to see only its reports.</li>
         <li><b>Find</b> (top right, or press <b>/</b>) jumps to any county or chapter. In Explore, the <b>Years</b> chart picks one year or a range, or plays the 20 years in turn.</li>
       </ul>
       <button id="guide-close">Got it</button>
@@ -101,6 +101,6 @@
     </div>
   </dialog>
 
-  <script type="module" src="js/cosmos3d.js?v=13"></script>
+  <script type="module" src="js/cosmos3d.js?v=14"></script>
 </body>
 </html>

@@ -327,3 +327,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, [tabindex]:focus-vis
 /* the story's seven chapter buttons need the room: Find shrinks to its icon there */
 body.is-story .find-lab { display: none; }
 body.is-story .find-btn { padding: 5px 8px; }
+/* county view: the 10 houses as a row of icons */
+.cv-houses { display: flex; align-items: center; gap: 2px; margin: 2px 0 6px; }
+.cv-houses svg { width: 22px; height: 22px; }
+.cv-houses b { margin-left: 8px; font-size: 15px; color: var(--ink); }

@@ -1,9 +1,9 @@
 /* Storm Risk Cosmos · Texas
  * A seven-chapter 3D story for homeowners insurers. Every county is a 3D storm:
  *   shape  = the peril that drives its NOAA damage (hail stones, thunderstorm-wind spiral, tornado funnel)
- *   stack  = amounts under the storm, one bundle = a fixed amount: paper money for dollars, red bills for claims paid,
- *            policy paper for insured homes, rose sheets for owner homes without a policy (two-part stacks compare two
- *            amounts in one column)
+ *   stack  = amounts under the storm, one bundle = a fixed amount: paper money for dollars, red bills for claims paid;
+ *            homes stand as a tower, one floor = a bundle of homes, blue floors insured, rose floors without a policy,
+ *            with a penthouse on top (two-part stacks compare two amounts in one column)
  *   colour = the measure of the chapter, always named in the legend
  * Each chapter names one high-contrast pair of counties. The site opens on the story; Explore (after the last chapter, or
  * the toggle in the top bar) gives free choice of colour, layout and stacks. Clicking a county opens the county view: the county on its
@@ -260,28 +260,29 @@ const bill = (paper, ink, edge, stamp) => canvasTex(256, 116, (g, w, h) => {
   if (stamp) { g.save(); g.translate(w / 2 + 70, h / 2); g.rotate(-0.25); g.font = "bold 22px Helvetica, Arial, sans-serif"; g.fillText(stamp, 0, 0); g.restore(); }
   else { g.fillStyle = "rgba(196, 160, 82, 0.9)"; g.fillRect(w / 2 + 52, 0, 26, h); }           // paper strap
 });
+// homes stack as a tower: one floor = one bundle of homes, wall + a row of windows + a floor slab; the top is a flat roof
+function building(wall, frame, glass) {
+  const side = canvasTex(96, 64, (g, w, h) => {
+    g.fillStyle = wall; g.fillRect(0, 0, w, h);
+    g.fillStyle = frame; g.fillRect(0, h - 6, w, 6);                                   // floor slab
+    for (let i = 0; i < 4; i++) {
+      const x = 7 + i * 22.5;
+      g.fillStyle = frame; g.fillRect(x - 1.5, 13.5, 17, 33);
+      g.fillStyle = glass; g.fillRect(x, 15, 14, 30);
+      g.fillStyle = "rgba(255,255,255,0.55)"; g.fillRect(x + 2, 17, 4, 26);           // glint
+      g.fillStyle = frame; g.fillRect(x, 29, 14, 2);                                   // mullion
+    }
+  });
+  side.wrapS = side.wrapT = THREE.RepeatWrapping;
+  const top = canvasTex(128, 128, (g, w, h) => { g.fillStyle = "#cfd3de"; g.fillRect(0, 0, w, h); g.strokeStyle = frame; g.lineWidth = 10; g.strokeRect(5, 5, w - 10, h - 10); });
+  return { side, top, building: true, frame, wall, glass };
+}
 const moneyPaper = { top: bill("#cfe3bf", "#3f6e3a", "#5f8f55"), side: sideTex("#d6efc4", "#8fc47a", "#6f9a63", "rgba(196, 160, 82, 0.95)") };
 const PAPER = {
   money: moneyPaper, damage: moneyPaper,
   claims: { top: bill("#f6c7b8", "#9a3a26", "#c0533a", "PAID"), side: sideTex("#fadbd1", "#e59a83", "#c0533a", "rgba(196, 160, 82, 0.95)") },
-  policy: {
-    top: canvasTex(256, 116, (g, w, h) => {
-      g.fillStyle = "#fbfcff"; g.fillRect(0, 0, w, h);
-      g.fillStyle = "#2c5aa0"; g.fillRect(0, 0, w, 24);
-      g.fillStyle = "#fff"; g.font = "bold 15px Helvetica, Arial, sans-serif"; g.textBaseline = "middle"; g.fillText("HOMEOWNERS POLICY", 14, 13);
-      g.fillStyle = "#c3cbe0"; for (let y = 38; y < h - 12; y += 12) g.fillRect(14, y, w * (y % 24 ? 0.55 : 0.68), 4);
-      g.strokeStyle = "#2c5aa0"; g.lineWidth = 4; g.beginPath(); g.moveTo(w - 50, 40); g.lineTo(w - 24, 48); g.lineTo(w - 24, 70); g.quadraticCurveTo(w - 37, 96, w - 50, 100); g.quadraticCurveTo(w - 63, 96, w - 76, 70); g.lineTo(w - 76, 48); g.closePath(); g.stroke();
-    }),
-    side: sideTex("#f6f8fd", "#c9d3ea", "#8fa2cc", "rgba(44, 90, 160, 0.85)"),
-  },
-  uncovered: {
-    top: canvasTex(256, 116, (g, w, h) => {
-      g.fillStyle = "#f7e1e3"; g.fillRect(0, 0, w, h);
-      g.strokeStyle = "#8c1d2f"; g.lineWidth = 5; g.beginPath(); g.moveTo(w / 2 - 34, 62); g.lineTo(w / 2, 30); g.lineTo(w / 2 + 34, 62); g.moveTo(w / 2 - 24, 56); g.lineTo(w / 2 - 24, 92); g.lineTo(w / 2 + 24, 92); g.lineTo(w / 2 + 24, 56); g.stroke();
-      g.strokeStyle = "#c81d4b"; g.lineWidth = 6; g.beginPath(); g.moveTo(w / 2 - 44, 24); g.lineTo(w / 2 + 44, 100); g.stroke();
-    }),
-    side: sideTex("#f8e6e8", "#e3aab2", "#c26b78", "rgba(200, 29, 75, 0.7)"),
-  },
+  policy: building("#e4ebf8", "#2c5aa0", "#a9bfe3"),
+  uncovered: building("#f3c6cd", "#c81d4b", "#e08d9b"),
 };
 const stackGeo = new THREE.BoxGeometry(1.5, 1, 0.68); stackGeo.translate(0, 0.5, 0);
 
@@ -333,7 +334,18 @@ function paperFor(part, kind) {
   part.sideTex = PAPER[kind].side.clone();                   // own copy so each stack repeats its bundles to its height
   part.sideMat.map = part.sideTex; part.topMat.map = PAPER[kind].top;
   part.sideMat.needsUpdate = part.topMat.needsUpdate = true;
+  const b = PAPER[kind].building;                            // towers stand on a square footprint, paper on a bill
+  part.mesh?.scale.set(b ? 0.78 : 1, part.mesh.scale.y, b ? 1.7 : 1);
 }
+// the penthouse on top of a homes tower: a ledge, a small floor with windows and a pyramid roof in the top floor's colour
+const ROOF_H = 0.85;
+const PENT = (() => {
+  const ledge = new THREE.BoxGeometry(1.26, 0.08, 1.26); ledge.translate(0, 0.04, 0);
+  const box = new THREE.BoxGeometry(0.66, 0.4, 0.66); box.translate(0, 0.28, 0);
+  const cap = new THREE.ConeGeometry(0.62, 0.38, 4); cap.rotateY(Math.PI / 4); cap.translate(0, 0.67, 0);
+  return { ledge, box, cap };
+})();
+const buildingStack = () => state.stack.some((p) => PAPER[p.kind].building);
 function makePart(fips, rot) {
   const part = { sideMat: new THREE.MeshStandardMaterial({ roughness: 0.9, transparent: true }), topMat: new THREE.MeshStandardMaterial({ roughness: 0.85, transparent: true }), h0: 0, h1: 0 };
   paperFor(part, "money");
@@ -351,6 +363,10 @@ function makeObj(m) {
   obj.hit = new THREE.Mesh(hitGeo, hitMat); obj.hit.userData.fips = m.fips; obj.group.add(obj.hit); hits.push(obj.hit);
   const rot = (Math.random() - 0.5) * 0.5;
   obj.parts = [makePart(m.fips, rot), makePart(m.fips, rot)];
+  obj.roofMats = [0, 1, 2].map(() => new THREE.MeshStandardMaterial({ roughness: 0.7, flatShading: true, transparent: true }));
+  obj.roof = new THREE.Group(); obj.roof.rotation.y = rot; obj.roof.visible = false; obj.roof.scale.setScalar(0.001); obj.r0 = obj.r1 = 0.001;
+  obj.roof.add(new THREE.Mesh(PENT.ledge, obj.roofMats[0]), new THREE.Mesh(PENT.box, obj.roofMats[1]), new THREE.Mesh(PENT.cap, obj.roofMats[2]));
+  world.add(obj.roof);
   obj.group.scale.setScalar(0.001);
   world.add(obj.group); OBJ.set(m.fips, obj);
   return obj;
@@ -380,7 +396,8 @@ const matchLine = (() => {
 
 function layout() {
   const sf = SIZE_FACTOR[state.mode], all = [...M.values()], stacked = useStack();
-  const nodes = all.map((m) => { const h = stacked ? [partH(m, 0), partH(m, 1)] : [0, 0]; return { m, h, r: stacked ? STORM_ON_STACK : sizeOf(m) * sf, top: h[0] + h[1] }; });
+  const tower = stacked && buildingStack();
+  const nodes = all.map((m) => { const h = stacked ? [partH(m, 0), partH(m, 1)] : [0, 0]; return { m, h, r: stacked ? STORM_ON_STACK : sizeOf(m) * sf, top: h[0] + h[1] + (tower && h[0] + h[1] > 0 ? ROOF_H : 0) }; });
   if (state.mode === "map") {
     for (const d of nodes) { d.x = d.m.xy[0]; d.z = d.m.xy[1]; }
   } else if (state.mode === "burst" && state.cluster) {
@@ -418,6 +435,11 @@ function layout() {
     o.p0.copy(o.group.position); o.p1.set(d.x, y, z);
     o.s0 = o.group.scale.x; o.s1 = d.r;
     o.parts.forEach((p, i) => { p.h0 = p.mesh.scale.y; p.h1 = d.h[i]; });
+    o.r0 = o.roof.scale.x; o.r1 = tower && d.top > 0 ? 1 : 0.001;
+    if (tower && d.top > 0) {                                  // penthouse floor like the top floor; roof in the colour of the larger share
+      const P = PAPER[state.stack[d.h[1] > 0 ? 1 : 0].kind], R = PAPER[state.stack[d.h[1] > d.h[0] ? 1 : 0].kind];
+      o.roofMats[0].color.set(P.frame); o.roofMats[1].color.set("#ffffff"); o.roofMats[1].map = P.side; o.roofMats[1].needsUpdate = true; o.roofMats[2].color.set(R.frame);
+    }
   }
   tween.t0 = performance.now();
   mapLines.visible = state.mode === "map";
@@ -530,6 +552,9 @@ function frame(now) {
       p.sideTex.repeat.set(1, h / BUNDLE_H);
       p.sideMat.opacity = p.topMat.opacity = o.alpha;
     }
+    const rs = k < 1 ? o.r0 + (o.r1 - o.r0) * e : o.r1;
+    o.roof.visible = rs > 0.01;
+    if (o.roof.visible) { o.roof.position.set(o.group.position.x, base, o.group.position.z); o.roof.scale.setScalar(rs); for (const mt of o.roofMats) mt.opacity = o.alpha; }
     if (o.spin && !REDUCE) o.spin.rotation.y += dt * SPIN[o.dom];
     if (o.dom === 1) o.shape.rotation.x += (WIND_TILT[state.mode] - o.shape.rotation.x) * Math.min(1, dt * 4);
     o.alpha += (o.alphaTo - o.alpha) * Math.min(1, dt * 8);
@@ -600,7 +625,12 @@ function icon(k, color) {
   if (k === 2) return `<path d="M8 10 Q30 2 52 10 Q44 22 37 32 Q32 42 30 55 Q27 42 23 32 Q16 22 8 10Z" fill="${color}" fill-opacity=".55" stroke="${color}" stroke-width="2"/><path d="M14 14 Q30 20 46 13 M20 25 Q31 29 41 24 M25 36 Q31 38 36 35" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="2"/>`;
   return `<circle cx="30" cy="30" r="9" fill="${color}"/>`;
 }
-const stackSVG = (kind, n) => { const [f, e, s] = PAPER_KIND[kind].c; return `<svg viewBox="0 0 46 ${4 + n * 9}" width="40" height="${(4 + n * 9) * 0.87}">${d3.range(n).map((i) => { const y = 2 + (n - 1 - i) * 9;
+const towerSVG = (kind, n) => {
+  const P = PAPER[kind], H = 13 + n * 9;
+  const floors = d3.range(n).map((i) => { const y = 13 + i * 9; return `<rect x="6" y="${y}" width="28" height="9" fill="${P.wall}"/><rect x="6" y="${y + 7.5}" width="28" height="1.5" fill="${P.frame}"/>${[9.5, 17, 24.5].map((x) => `<rect x="${x}" y="${y + 1.8}" width="5" height="4.6" fill="${P.glass}" stroke="${P.frame}" stroke-width=".8"/>`).join("")}`; }).join("");
+  return `<svg viewBox="0 0 40 ${H}" width="30" height="${H * 0.75}"><path d="M11 8 L20 1.5 L29 8Z" fill="${P.frame}"/><rect x="14" y="8" width="12" height="4" fill="${P.wall}" stroke="${P.frame}" stroke-width=".8"/><rect x="4" y="11.6" width="32" height="1.6" fill="${P.frame}"/>${floors}</svg>`;
+};
+const stackSVG = (kind, n) => { if (PAPER[kind]?.building) return towerSVG(kind, n); const [f, e, s] = PAPER_KIND[kind].c; return `<svg viewBox="0 0 46 ${4 + n * 9}" width="40" height="${(4 + n * 9) * 0.87}">${d3.range(n).map((i) => { const y = 2 + (n - 1 - i) * 9;
   return `<rect x="${3 + (i % 2) * 2}" y="${y}" width="38" height="8" rx="1" fill="${f}" stroke="${e}"/><rect x="${25 + (i % 2) * 2}" y="${y}" width="5" height="8" fill="${s}"/>`; }).join("")}</svg>`; };
 const billBar = (x, yBase, w, h, fill, edge) => { let out = ""; for (let y = yBase - 3.2; y >= yBase - h - 0.01; y -= 3.2) out += `<rect x="${x}" y="${y}" width="${w}" height="2.6" rx=".6" fill="${fill}" stroke="${edge}" stroke-width=".5"/>`; return out; };
 const iconSVG = (k, color, cls = "") => `<svg viewBox="0 0 60 60" class="${cls}">${icon(k, color)}</svg>`;
@@ -645,9 +675,9 @@ const STORY = [
     list: () => [{ title: "Hit hardest on one day", sub: "share of damage on the worst day (damage over $1M a year)", rows: rows(top("top1", 5, (m) => m.damage >= 1e6), "top1", fmtPct) }] },
   { short: "Insured homes", title: "Insured homes, and homes without a policy", mode: "map", lens: "coverage", size: "policies", stack: [{ key: "insured", kind: "policy" }, { key: "uncovered", kind: "uncovered" }], pair: PAIRS.homes,
     stat: () => [fmtPct(TX.coverage), `of owner-occupied homes are insured · ${fmtCount(TX.uncovered)} are not`],
-    text: () => `${fmtCount(TX.policies)} homeowners policies cover about ${fmtMoney(TX.insuredValue)} of homes. Each stack is a county's owner-occupied homes: the blue part is insured, the rose part has no homeowners policy, so a storm repair falls on the owner. ${P[0].name} insures ${fmtPct(P[0].coverage)} of its owner homes; ${P[1].name} only ${fmtPct(P[1].coverage)}. Homes on the Texas FAIR Plan or surplus lines are not counted, so the gap is an upper bound.`,
+    text: () => `${fmtCount(TX.policies)} homeowners policies cover about ${fmtMoney(TX.insuredValue)} of homes. Each tower is a county's owner-occupied homes, one floor per bundle of homes: blue floors are insured, rose floors have no homeowners policy, so a storm repair falls on the owner. ${P[0].name} insures ${fmtPct(P[0].coverage)} of its owner homes; ${P[1].name} only ${fmtPct(P[1].coverage)}. Homes on the Texas FAIR Plan or surplus lines are not counted, so the gap is an upper bound.`,
     contrast: () => vs(fmtPct, "coverage"), pairValue: (m) => `${fmtPct(m.coverage)} insured · ${fmtCount(m.uncovered)} without`,
-    read: "Stack = owner homes: blue = insured, rose = no policy. Colour = share insured (orange low, blue high).",
+    read: "Tower = owner homes, one floor = a bundle of homes: blue floors insured, rose floors no policy. Colour = share insured (orange low, blue high).",
     tip: (m) => `${fmtPct(m.coverage)} of owner homes insured · ${fmtCount(m.uncovered)} without a policy`,
     list: () => [{ title: "Most homes without a policy", sub: "owner homes without a policy (share)", rows: rows(top("uncovered"), "uncovered", fmtCount, (m) => ` · ${fmtPct(m.uncoveredShare)}`) }] },
   { short: "Premium vs claims", title: "Premium in, claims out", mode: "map", lens: "lossRatio", size: "policies", stack: [{ key: "paidPerYear", kind: "claims" }, { key: "keptPos", kind: "money" }], pair: PAIRS.premium,
@@ -832,7 +862,7 @@ function renderLegend() {
   $("#shape-legend").innerHTML = `<div class="lg-title">Shape = main storm</div><div class="lg-row">${PERILS.map((p) => `<div>${iconSVG(p.k, L.type === "peril" ? p.c : ink)}<span>${p.name}</span></div>`).join("")}</div>`;
   if (useStack()) {
     const yrs = state.stack[0].key === "damageSel" ? ` a year, ${yearLabel()}` : "";
-    $("#size-legend").innerHTML = `<div class="lg-title">Stack height = amount · one bundle ≈ ${state.stack[0].kind === "policy" ? `${fmtCount(bundle)} homes` : fmtMoney(bundle)}</div><div class="lg-row">${state.stack.map((s) => `<div class="cash-leg">${stackSVG(s.kind, 3)}<span>${PAPER_KIND[s.kind].label}${yrs}</span></div>`).join("")}</div>`;
+    $("#size-legend").innerHTML = `<div class="lg-title">${buildingStack() ? `Tower height = owner homes · one floor ≈ ${fmtCount(bundle)} homes` : `Stack height = amount · one bundle ≈ ${fmtMoney(bundle)}`}</div><div class="lg-row">${state.stack.map((s) => `<div class="cash-leg">${stackSVG(s.kind, 3)}<span>${PAPER_KIND[s.kind].label}${yrs}</span></div>`).join("")}</div>`;
   } else {
     const days = state.size.startsWith("stormDays");
     const ticks = [sizeOf.max, sizeOf.max / 4, sizeOf.max / 25], px = (v) => sizeOf.scale(v) * 6, R = px(ticks[0]), base = R * 2 + 8, f = days ? fmt1 : fmtCount;
@@ -914,7 +944,7 @@ function loadEvents(fips) {
 // ---------------------------------------------------------------- county view
 // Clicking a county swaps Texas for that county: its outline raised as a slab with its neighbours around it, every NOAA report
 // as a dot where it happened, one 3D storm per peril floating above (size = damage a year, a line down to where its reports
-// fell), 20 houses for its owner-occupied homes (blue roof = insured, red = no policy) and paper stacks for its money a year.
+// fell), 10 houses in a row for its owner-occupied homes (blue roof = insured, red = no policy) and paper stacks for its money a year.
 const CV_R = 17, SLAB = 1.2, CV_BH = 1, CV_CAM = [[0, 30, 49], [0, 3.2, 3]];
 const MON = (d) => new Date(String(d).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3T12:00")).toLocaleDateString("en-US", { month: "short", year: "numeric" });
 let CV = null, NEIGHBORS = null;
@@ -934,7 +964,7 @@ function glyph(k, color, faint) {
 const HOUSE = (() => {
   const body = new THREE.BoxGeometry(0.8, 0.62, 0.8); body.translate(0, 0.31, 0);
   const roof = new THREE.ConeGeometry(0.68, 0.55, 4); roof.rotateY(Math.PI / 4); roof.translate(0, 0.9, 0);
-  const m = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7, flatShading: true });
+  const m = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7, flatShading: true, transparent: true, opacity: 0.8 });
   return { body, roof, wall: { ins: m("#ffffff"), unc: m("#fbe9eb"), none: m("#eeeff3") }, top: { ins: m("#2c5aa0"), unc: m("#c81d4b"), none: m("#9aa0b4") } };
 })();
 
@@ -1014,18 +1044,22 @@ function buildCounty(m) {
     CV.labels.push({ html: M.get(+f.id)?.name ?? "", cls: "nb", pos: V(x * k, 0, z * k) });
   }
   const [cx, cz] = P(d3.geoCentroid(feat));
-  // 20 houses = the county's owner-occupied homes; blue roof insured, red roof no homeowners policy
-  const known = m.coverage != null, nIns = known ? Math.round(m.coverage * 20) : 0;
-  for (let i = 0; i < 20; i++) {
-    const kind = !known ? "none" : i < nIns ? "ins" : "unc", col = i % 5, row = Math.floor(i / 5);
+  // 10 houses in a row = the county's owner-occupied homes, one house = 10%: blue roof insured, red roof no homeowners policy
+  // ("8 of 10 homes are insured"). A share that is not zero keeps at least one house, so a 95% county still shows one red roof.
+  const known = m.coverage != null, unc = m.uncoveredShare ?? 0;
+  const nIns = !known ? 0 : Math.min(unc >= 0.05 ? 9 : 10, Math.max(m.coverage >= 0.05 ? 1 : 0, Math.round(m.coverage * 10)));
+  CV.nIns = nIns;
+  const HS = 1.35, gap = 1.5 * HS;
+  for (let i = 0; i < 10; i++) {
+    const kind = !known ? "none" : i < nIns ? "ins" : "unc";
     const h = new THREE.Group();
     h.add(new THREE.Mesh(HOUSE.body, HOUSE.wall[kind]), new THREE.Mesh(HOUSE.roof, HOUSE.top[kind]));
-    h.position.set(cx + (col - 2) * 1.45, SLAB, cz + (row - 1.5) * 1.45 + 1); h.scale.setScalar(0.001); group.add(h);
+    h.position.set(cx + (i - 4.5) * gap, SLAB, cz + 1.5); h.scale.setScalar(0.001); group.add(h);
     const tip = !known ? `${fmtCount(m.owners)} owner homes · no TDI policy data` : kind === "ins" ? `Insured: ${fmtCount(m.insured)} of ${fmtCount(m.owners)} owner homes (${fmtPct(m.coverage)})` : `No homeowners policy: ${fmtCount(m.uncovered)} owner homes (${fmtPct(m.uncoveredShare)})`;
-    h.children.forEach((c) => { c.userData.tip = `<b>Homes</b><br>${tip}<br><small>one house = 5% of the county's owner-occupied homes</small>`; CV.hits.push(c); });
-    CV.grow.push({ o: h, s: 1, delay: 650 + i * 25 });
+    h.children.forEach((c) => { c.userData.tip = `<b>Homes · ${known ? `${nIns} of 10 insured` : "no policy data"}</b><br>${tip}<br><small>one house = 10% of the county's owner-occupied homes</small>`; CV.hits.push(c); });
+    CV.grow.push({ o: h, s: HS, delay: 650 + i * 60 });
   }
-  CV.labels.push({ html: `${known ? `${fmtPct(m.coverage)} insured` : "homes"}<small>${fmtCount(m.owners)} owner homes</small>`, cls: "cv-homes", pos: V(cx, SLAB + 2.4, cz - 2.2 + 1) });
+  CV.labels.push({ html: `${known ? `${nIns} of 10 homes insured` : "homes"}<small>${known ? `${fmtPct(m.coverage)} of ` : ""}${fmtCount(m.owners)} owner homes</small>`, cls: "cv-homes", pos: V(cx, SLAB + 2.6, cz + 1.5) });
   // one storm per peril above the back edge, size = damage a year
   const stats = perilStats(m), maxD = d3.max(stats, (s) => s.dmgYr) || 1, zb = -CV_R * 0.78 - 3;
   CV.stats = stats; CV.drop = [];
@@ -1159,7 +1193,8 @@ function renderCountyPanel(m) {
     <svg id="cv-cal" class="cv-cal" role="group" aria-label="Storm days by month, 2006 to 2025"></svg>
     <div class="cv-cal-key">${PERILS.map((p) => `<span><i style="background:${p.c}"></i>${p.name}</span>`).join("")}<span class="dim">darker = more storm days</span></div>
     <div class="cv-cal-note" id="cv-cal-note" aria-live="polite"></div>
-    <div class="cv-sec">Homes <span>20 houses = all owner homes</span></div>
+    <div class="cv-sec">Homes <span>10 houses = all owner homes</span></div>
+    ${m.coverage == null ? "" : `<div class="cv-houses" role="img" aria-label="${CV.nIns} of 10 homes insured">${d3.range(10).map((i) => house(i < CV.nIns ? "#2c5aa0" : "#c81d4b")).join("")}<b>${CV.nIns} of 10</b></div>`}
     <div class="cv-legend">${m.coverage == null ? `${house("#9aa0b4")} ${fmtCount(m.owners)} owner homes, no TDI policy data` : `<span>${house("#2c5aa0")} insured <b>${fmtPct(m.coverage)}</b> · ${fmtCount(m.insured)}</span><span>${house("#c81d4b")} no policy <b>${fmtPct(m.uncoveredShare)}</b> · ${fmtCount(m.uncovered)}</span>`}</div>
     <div class="cv-sec">Money a year <span>one bundle ≈ ${fmtMoney(CV.bundle)}</span></div>
     <div class="cv-legend"><span>${stackSVG("damage", 2)} storm damage <b>${fmtMoney(m.damage)}</b></span>${m.premiumYear != null ? `<span>${stackSVG("claims", 2)} claims paid <b>${fmtMoney(m.paidPerYear)}</b></span><span>${stackSVG("money", 2)} premium kept <b>${fmtMoney(Math.max(0, m.premiumYear - m.paidPerYear))}</b></span>` : ""}</div>
